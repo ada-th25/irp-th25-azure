@@ -1,0 +1,118 @@
+\documentclass[a4paper, 11pt]{article} % 11pt for better readability with standard fonts
+
+% Packages
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{authblk}
+\usepackage{appendix}
+\usepackage{listings}
+\usepackage{subcaption}
+\usepackage{siunitx}
+\usepackage[T1]{fontenc} % Ensures proper font encoding and crisp text
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage[dvipsnames]{xcolor}
+
+% Hyperlink configuration (Keeps preferred hidelinks and cleveref setup)
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink, capitalise]{cleveref}
+
+% Code listing configuration
+\lstset{ 
+    language=Python,               
+    keepspaces=true,
+    columns=fullflexible,
+    backgroundcolor=\color{white},  
+    basicstyle=\ttfamily, 
+    showstringspaces=false,
+    keywordstyle=\color{blue},      
+    commentstyle=\color{ForestGreen},     
+    stringstyle=\color{red},        
+    breaklines=true,                
+    captionpos=b,                   
+    numbers=left,                   
+    numberstyle=\tiny\color{gray}   
+}
+
+% Bibliography setup
+\usepackage[backend=biber,style=apa]{biblatex}
+\addbibresource{references.bib}
+
+\begin{document}
+
+% ==========================================
+%               TITLE PAGE
+% ==========================================
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+    
+    {\Large\bfseries Imperial College London \par}
+    {\large Department of Earth Science and Engineering \par} % Update to your specific department
+    {\large MSc Environmental Data Science and Machine Learning \par} % Update course name
+    
+    \vspace{2.5cm}
+    
+    {\LARGE\bfseries High-Resolution Spatial Downscaling of Wildfire Data \par}
+    
+    \vspace{2.5cm}
+    
+    {\large\bfseries Author:} \\
+    {\large Tsuyu Huang} \\
+    {\small \href{mailto:tsuyu.huang25@imperial.ac.uk}{tsuyu.huang25@imperial.ac.uk} \par} % Replace with your email
+    
+    \vspace{1cm}
+    
+    {\large\bfseries Supervisors:} \\
+    {\large Jorge Veiras (\href{mailto:jorge@artiocarbon.com}{jorge@artiocarbon.com})} \\
+    {\large Prof. Anna Korre (\href{mailto:a.korre@imperial.ac.uk}{a.korre@imperial.ac.uk}) \par}
+
+     \vspace{1.5cm}
+    
+    % Repository links formatted as clickable text matching your hyperref preferences
+    {\large\bfseries Code Repository:} \\
+    {\small \url{https://github.com/ese-ada-lovelace-2025/irp-th25} \par} 
+
+    \vspace{1.5cm}
+    
+    {\large\bfseries Company:} \\
+    {\large Artio} \\
+    {\small \href{https://www.artiocarbon.com/}{www.artiocarbon.com} \par}
+    
+    \vfill
+    
+    {\large \today \par}
+\end{titlepage}
+
+\nopagebreak
+
+% ==========================================
+%          ABSTRACT & CONTENTS
+% ==========================================
+\begin{abstract}
+Wildfires are destructive and a rapidly evolving hazard. With climate change, they become increasingly severe and frequent. This increases the need for a better wildfire risk prediction and monitoring using satellite data. This project aims to achieve a high-resolution spatial downscaling of global wildfire data.
+
+\end{abstract}
+
+\clearpage
+\tableofcontents
+\clearpage
+
+% ==========================================
+%             MAIN CONTENT
+% ==========================================
+\section{Introduction}
+Introduction text goes here. Citations should be included as needed, for example (\cite{badhanDeepLearningApproach2024}).
+
+\section{Materials}
+
+\section{Methods}
+
+\section{Results}
+
+\section{Discussions}
+
+\section{Conclusions}
+
+\printbibliography
+
+\end{document}
