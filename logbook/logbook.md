@@ -9,3 +9,14 @@
 - **Work Plan Before Next Meeting:**
     - For coarse inputs, explore GOES vs MTG. For high-res targets, explore Landsat vs Sentinel 2.
     - Start looking into the literature for direct and cascaded downscaling approaches.
+
+### First Meeting With Second Supervisor (28 May 2026)
+- **Presenr:** Tsuyu Huang (Student), Anna Korre (Second Supervisor)
+- **KeyPoints:**
+    - Personal introductions, understanding the second supervisor's role.
+    - Update on the overall scope of the project that was discussed with the main suprvisor (Jorge).
+- **Work Plan Before Next Meeting:**
+    - Check both supervisors' availability to set up a meeting with the three of us.
+    - Make a decision on what input/target dataset to use with justifications.
+    - Create a broad plan of the timeline for the project.
+    - Start creating a list of papers/references and write down how each of them are relevant to/supports my research.
