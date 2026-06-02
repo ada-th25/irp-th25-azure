@@ -11,7 +11,7 @@
     - Start looking into the literature for direct and cascaded downscaling approaches.
 
 ### First Meeting With Second Supervisor (28 May 2026)
-- **Presenr:** Tsuyu Huang (Student), Anna Korre (Second Supervisor)
+- **Present:** Tsuyu Huang (Student), Anna Korre (Second Supervisor)
 - **KeyPoints:**
     - Personal introductions, understanding the second supervisor's role.
     - Update on the overall scope of the project that was discussed with the main suprvisor (Jorge).
@@ -20,3 +20,18 @@
     - Make a decision on what input/target dataset to use with justifications.
     - Create a broad plan of the timeline for the project.
     - Start creating a list of papers/references and write down how each of them are relevant to/supports my research.
+
+### In-Person Meeting (2 June 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Discussed progress from previous week, including possible model architectures to use.
+    - Raised the problem about temporal mismatch of VIIRS and Landsat data.
+    - Discussed the resources available for processing/training with large amounts of data
+- **Feedback:**
+    - For the temporal mismatch of VIIRS/Landsat, use GOES -> VIIRS model to obtain VIIRS/Landsat data pairs.
+    - Look into about 3 architectures to compare.
+- **Work Plan Before Next Meeting:**
+    - Look into what covariate data to use, and find out what bands we will be using.
+    - Look into the evaluation metrics to use.
+    - Find 3 architectures to use and compare.
+    - Look into how to use Google Cloud Platform for training.
