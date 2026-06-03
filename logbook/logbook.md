@@ -12,7 +12,7 @@
 
 ### First Meeting With Second Supervisor (28 May 2026)
 - **Present:** Tsuyu Huang (Student), Anna Korre (Second Supervisor)
-- **KeyPoints:**
+- **Key Points:**
     - Personal introductions, understanding the second supervisor's role.
     - Update on the overall scope of the project that was discussed with the main suprvisor (Jorge).
 - **Work Plan Before Next Meeting:**
