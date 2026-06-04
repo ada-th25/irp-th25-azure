@@ -35,3 +35,18 @@
     - Look into the evaluation metrics to use.
     - Find 3 architectures to use and compare.
     - Look into how to use Google Cloud Platform for training.
+
+### Meeting With Main and Second Supervisor (4 Jun 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor), Anna Korre (Second Supervisor)
+- **Key Points:**
+    - Explained the project progress up to date.
+    - Discussed the data to use for the project, including considerations for weather data.
+    - Explained how the project progress is monitored (via Google Docs).
+- **Feedback:**
+    - Consider weather data as extra input.
+    - Read the GOES -> VIIRS paper (Badhan et al.) carefully to understand how they use the data.
+    - There may be no need for NDWI data for covariates.
+- **Work Plan Before Next Meeting:**
+    - Look into the literature carefully, finalise a decision on what architecture to use for downscaling.
+    - Start writing the project plan, even if the final selected methods are different.
+    - Look into how to process the data.
