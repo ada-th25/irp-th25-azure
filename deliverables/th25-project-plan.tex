@@ -85,7 +85,7 @@
 %          ABSTRACT & CONTENTS
 % ==========================================
 \begin{abstract}
-Wildfires are destructive and a rapidly evolving hazard. With climate change, they become increasingly severe and frequent. This increases the need for a better wildfire risk prediction and monitoring using satellite data. This project aims to achieve a high-resolution spatial downscaling of global wildfire data.
+Wildfires are destructive and a rapidly evolving hazard. With climate change, they become increasingly severe and frequent. This increases the need for a higher-resolution wildfire data for better monitoring and risk assessment. Geostationary satellites (GEO) have high-temporal resolution, but lacks the resolution needed for a detailed wildfire risk assessment. While low orbit satellites (LEO) provide better spatial resolution, but low temporal resolution to monitor rapid wildfire spread. Existing generative downscaling models have demonstrated their effectiveness in producing sharp, realistic high-resolution remote sensing data. But many still suffers from artefacts, bluriness, and hallucinations. This project aims to achieve a high-resolution spatial downscaling of wildfire data using Conditional Diffusion Models (DDPMs). The model integrates additional physical covariates, such as topography and landcover to mitigate physically implausible outputs. The project compares direct (2km to 30m) and cascaded (2km to 375m to 30m) downscaling pipelines and their effectiveness in producing high-fidelity, high-resolution wildfire data. The project compares basline vanilla DDPM with 3 other DDPMs with different noise prediction backbone, which is based on novel downscaling architectures: Cross Resolution Distance Aware (CredDSR), Terrain-Adaptive U-Net Transformer (TAUT), and Modular and Physics-Informed Hierarchical Transformer (HiT\_DS).
 \end{abstract}
 
 \tableofcontents
@@ -95,6 +95,7 @@ Wildfires are destructive and a rapidly evolving hazard. With climate change, th
 %             MAIN CONTENT
 % ==========================================
 \section{Introduction}
+
 Introduction text goes here. Citations should be included as needed, for example (\cite{badhanDeepLearningApproach2024}).
 
 \section{Literature Review}
