@@ -249,6 +249,24 @@
   keywords = {Computer Vision and Pattern Recognition (cs.CV),Diffusion model,Flood mapping,FOS: Computer and information sciences,High-resolution flood mapping,U-Net}
 }
 
+@article{qiAdvancingImageSuperresolution2026,
+  title = {Advancing Image Super-Resolution Techniques in Remote Sensing: {{A}} Comprehensive Survey},
+  shorttitle = {Advancing Image Super-Resolution Techniques in Remote Sensing},
+  author = {Qi, Yunliang and Lou, Meng and Liu, Yimin and Li, Lu and Yang, Zhen and Nie, Wen},
+  date = {2026-01-01},
+  journaltitle = {ISPRS Journal of Photogrammetry and Remote Sensing},
+  shortjournal = {ISPRS Journal of Photogrammetry and Remote Sensing},
+  volume = {231},
+  pages = {68--100},
+  issn = {0924-2716},
+  doi = {10.1016/j.isprsjprs.2025.10.024},
+  url = {https://www.sciencedirect.com/science/article/pii/S0924271625004125},
+  urldate = {2026-06-06},
+  abstract = {Remote sensing image super-resolution (RSISR) is a crucial task in remote sensing image processing, aiming to reconstruct high-resolution (HR) images from their low-resolution (LR) counterparts. Despite the growing number of RSISR methods proposed in recent years, a systematic and comprehensive review of these methods is still lacking. This paper presents a thorough review of RSISR algorithms, covering methodologies, datasets, and evaluation metrics. We provide an in-depth analysis of RSISR methods, categorizing them into supervised, unsupervised, and quality evaluation approaches, to help researchers understand current trends and challenges. Our review also discusses the strengths, limitations, and inherent challenges of these techniques. Notably, our analysis reveals significant limitations in existing methods, particularly in preserving fine-grained textures and geometric structures under large-scale degradation. Based on these findings, we outline future research directions, highlighting the need for domain-specific architectures and robust evaluation protocols to bridge the gap between synthetic and real-world RSISR scenarios.},
+  keywords = {Image super-resolution,Machine learning,Remote sensing images},
+  file = {/Users/th25/Zotero/storage/7HHS7S7Y/Qi et al. - 2026 - Advancing image super-resolution techniques in remote sensing A comprehensive survey.pdf;/Users/th25/Zotero/storage/VYN7WT23/S0924271625004125.html}
+}
+
 @article{sahariaImageSuperResolutionIterative2023,
   title = {Image {{Super-Resolution}} via {{Iterative Refinement}}},
   author = {Saharia, Chitwan and Ho, Jonathan and Chan, William and Salimans, Tim and Fleet, David J. and Norouzi, Mohammad},
@@ -334,6 +352,40 @@
   abstract = {Fine spatial and temporal resolution land surface temperature (LST) data are of great importance for various researches and applications. Spatio-temporal fusion provides an important solution to obtain fine spatio-temporal resolution LST. For example, 100-m, daily LST data can be created by fusing 1-km, daily Moderate Resolution Imaging Spectroradiometer (MODIS) LST with 100-m, 16-day Landsat LST data. However, the quality of MODIS LST products has been decreasing noticeably in recent years, which has a great impact on fusion accuracy. To address this issue, this paper proposes to use Visible Infrared Imaging Radiometer Suite (VIIRS) LST to replace MODIS LST in spatio-temporal fusion. Meanwhile, to cope with the data discrepancy caused by the large difference in overpass time between VIIRS LST and Landsat LST, a spatio-temporal fusion method based on the Restormer (RES-STF) is proposed. Specifically, to effectively model the differences between the 2 types of data, RES-STF uses Transformer modules in Restormer, which combines the advantages of convolutional neural networks (CNN) and Transformer to effectively capture both local and global context in images. In addition, the calculation of self-attention is re-designed by concatenating CNN to increase the efficiency of feature extraction. Experimental results on 3 areas validated the effectiveness of RES-STF, which outperforms one non-deep learning- and 3 deep learning-based spatio-temporal fusion methods. Moreover, compared to MODIS LST, VIIRS LST data contain richer spatial texture information, leading to more accurate fusion results, with both RMSE and MAE reduced by about 0.5 K.},
   keywords = {Landsat,RES-STF,Restormer,Spatial resolution,Spatio temporal fusion,Temporal resolution,VIIRS},
   file = {/Users/th25/Zotero/storage/SJMN4VQY/Wang and Huang - 2024 - RES-STF Spatio temporal Fusion of Visible Infrared Imaging Radiometer Suite and Landsat Land Surfac.pdf}
+}
+
+@online{wangSinSRDiffusionBasedImage2023,
+  title = {{{SinSR}}: {{Diffusion-Based Image Super-Resolution}} in a {{Single Step}}},
+  shorttitle = {{{SinSR}}},
+  author = {Wang, Yufei and Yang, Wenhan and Chen, Xinyuan and Wang, Yaohui and Guo, Lanqing and Chau, Lap-Pui and Liu, Ziwei and Qiao, Yu and Kot, Alex C. and Wen, Bihan},
+  date = {2023-11-23},
+  eprint = {2311.14760},
+  eprinttype = {arXiv},
+  eprintclass = {cs.CV},
+  doi = {10.48550/arXiv.2311.14760},
+  url = {http://arxiv.org/abs/2311.14760},
+  urldate = {2026-06-06},
+  abstract = {While super-resolution (SR) methods based on diffusion models exhibit promising results, their practical application is hindered by the substantial number of required inference steps. Recent methods utilize degraded images in the initial state, thereby shortening the Markov chain. Nevertheless, these solutions either rely on a precise formulation of the degradation process or still necessitate a relatively lengthy generation path (e.g., 15 iterations). To enhance inference speed, we propose a simple yet effective method for achieving single-step SR generation, named SinSR. Specifically, we first derive a deterministic sampling process from the most recent state-of-the-art (SOTA) method for accelerating diffusion-based SR. This allows the mapping between the input random noise and the generated high-resolution image to be obtained in a reduced and acceptable number of inference steps during training. We show that this deterministic mapping can be distilled into a student model that performs SR within only one inference step. Additionally, we propose a novel consistency-preserving loss to simultaneously leverage the ground-truth image during the distillation process, ensuring that the performance of the student model is not solely bound by the feature manifold of the teacher model, resulting in further performance improvement. Extensive experiments conducted on synthetic and real-world datasets demonstrate that the proposed method can achieve comparable or even superior performance compared to both previous SOTA methods and the teacher model, in just one sampling step, resulting in a remarkable up to x10 speedup for inference. Our code will be released at https://github.com/wyf0912/SinSR},
+  pubstate = {prepublished},
+  keywords = {Computer Science - Computer Vision and Pattern Recognition},
+  file = {/Users/th25/Zotero/storage/6G44ML8I/Wang et al. - 2023 - SinSR Diffusion-Based Image Super-Resolution in a Single Step.pdf;/Users/th25/Zotero/storage/VNGSYNKB/2311.html}
+}
+
+@online{wangVGGTVisualGeometry2025,
+  title = {{{VGGT}}: {{Visual Geometry Grounded Transformer}}},
+  shorttitle = {{{VGGT}}},
+  author = {Wang, Jianyuan and Chen, Minghao and Karaev, Nikita and Vedaldi, Andrea and Rupprecht, Christian and Novotny, David},
+  date = {2025-03-14},
+  eprint = {2503.11651},
+  eprinttype = {arXiv},
+  eprintclass = {cs.CV},
+  doi = {10.48550/arXiv.2503.11651},
+  url = {http://arxiv.org/abs/2503.11651},
+  urldate = {2026-06-06},
+  abstract = {We present VGGT, a feed-forward neural network that directly infers all key 3D attributes of a scene, including camera parameters, point maps, depth maps, and 3D point tracks, from one, a few, or hundreds of its views. This approach is a step forward in 3D computer vision, where models have typically been constrained to and specialized for single tasks. It is also simple and efficient, reconstructing images in under one second, and still outperforming alternatives that require post-processing with visual geometry optimization techniques. The network achieves state-of-the-art results in multiple 3D tasks, including camera parameter estimation, multi-view depth estimation, dense point cloud reconstruction, and 3D point tracking. We also show that using pretrained VGGT as a feature backbone significantly enhances downstream tasks, such as non-rigid point tracking and feed-forward novel view synthesis. Code and models are publicly available at https://github.com/facebookresearch/vggt.},
+  pubstate = {prepublished},
+  keywords = {Computer Science - Computer Vision and Pattern Recognition},
+  file = {/Users/th25/Zotero/storage/S9AVZ8RV/Wang et al. - 2025 - VGGT Visual Geometry Grounded Transformer.pdf;/Users/th25/Zotero/storage/B628XEGF/2503.html}
 }
 
 @article{yuProbabilisticApproachWildfire2026,
