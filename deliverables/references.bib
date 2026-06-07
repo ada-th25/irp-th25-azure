@@ -176,6 +176,40 @@
   file = {/Users/th25/Zotero/storage/UQ2NJW2N/Jones et al. - 2020 - Climate Change Increases the Risk of Wildﬁres.pdf}
 }
 
+@article{kangEfficientSwinTransformer2024,
+  title = {Efficient {{Swin Transformer}} for {{Remote Sensing Image Super-Resolution}}},
+  author = {Kang, Xudong and Duan, Puhong and Li, Jier and Li, Shutao},
+  date = {2024},
+  journaltitle = {IEEE Transactions on Image Processing},
+  volume = {33},
+  pages = {6367--6379},
+  issn = {1941-0042},
+  doi = {10.1109/TIP.2024.3489228},
+  url = {https://ieeexplore.ieee.org/document/10746331},
+  urldate = {2026-06-06},
+  abstract = {Remote sensing super-resolution (SR) technique, which aims to generate high-resolution image with rich spatial details from its low-resolution counterpart, play a vital role in many applications. Recently, more and more studies attempt to explore the application of Transformer in remote sensing field. However, they suffer from the high computational burden and memory consumption for remote sensing super-resolution. In this paper, we propose an efficient Swin Transformer (ESTNet) via channel attention for SR of remote sensing images, which is composed of three components. First, a three-layer convolutional operation is utilized to extract shallow features of the input low-resolution image. Then, a residual group-wise attention module is proposed to extract the deep features, which contains an efficient channel attention block (ECAB) and a group-wise attention block (GAB). Finally, the extracted deep features are reconstructed to generate high-resolution remote sensing images. Extensive experimental results proclaim that the proposed ESTNet can obtain better super-resolution results with low computational burden. Compared to the recently proposed Transformer-based remote sensing super-resolution method, the number of parameters is reduced by 82.68\% while the computational cost is reduced by 87.84\%. The code of the proposed ESTNet will be available at https://github.com/PuhongDuan/ESTNet for reproducibility.},
+  keywords = {channel attention,Computational modeling,Current transformers,Deep learning,Feature extraction,Image reconstruction,image super-resolution,Imaging,Remote sensing,Remote sensing image,Sensors,Spatial resolution,Superresolution,Swin Transformer},
+  file = {/Users/th25/Zotero/storage/932N6M49/Kang et al. - 2024 - Efficient Swin Transformer for Remote Sensing Image Super-Resolution.pdf}
+}
+
+@article{liSuperResolutionAlgorithmBased2023,
+  title = {A {{Super-Resolution Algorithm Based}} on {{Hybrid Network}} for {{Multi-Channel Remote Sensing Images}}},
+  author = {Li, Zhen and Zhang, Wenjuan and Pan, Jie and Sun, Ruiqi and Sha, Lingyu},
+  date = {2023-01},
+  journaltitle = {Remote Sensing},
+  volume = {15},
+  number = {14},
+  pages = {3693},
+  publisher = {Multidisciplinary Digital Publishing Institute},
+  issn = {2072-4292},
+  doi = {10.3390/rs15143693},
+  url = {https://www.mdpi.com/2072-4292/15/14/3693},
+  urldate = {2026-06-06},
+  abstract = {In recent years, the development of super-resolution (SR) algorithms based on convolutional neural networks has become an important topic in enhancing the resolution of multi-channel remote sensing images. However, most of the existing SR models suffer from the insufficient utilization of spectral information, limiting their SR performance. Here, we derive a novel hybrid SR network (HSRN) which facilitates the acquisition of joint spatial–spectral information to enhance the spatial resolution of multi-channel remote sensing images. The main contributions of this paper are three-fold: (1) in order to sufficiently extract the spatial–spectral information of multi-channel remote sensing images, we designed a hybrid three-dimensional (3D) and two-dimensional (2D) convolution module which can distill the nonlinear spectral and spatial information simultaneously; (2) to enhance the discriminative learning ability, we designed the attention structure, including channel attention, before the upsampling block and spatial attention after the upsampling block, to weigh and rescale the spectral and spatial features; and (3) to acquire fine quality and clear texture for reconstructed SR images, we introduced a multi-scale structural similarity index into our loss function to constrain the HSRN model. The qualitative and quantitative comparisons were carried out in comparison with other SR methods on public remote sensing datasets. It is demonstrated that our HSRN outperforms state-of-the-art methods on multi-channel remote sensing images.},
+  langid = {english},
+  keywords = {convolutional neural networks,hybrid network,multi-channel remote sensing images,super-resolution}
+}
+
 @article{liTwostageDownscalingCorrection2025,
   title = {Two-Stage Downscaling and Correction Cascade Learning Framework for Generating Long-Time Series Seamless Soil Moisture},
   author = {Li, Jie and Wei, Yingtao and Lin, Liupeng and Yuan, Qiangqiang and Shen, Huanfeng},
@@ -206,6 +240,25 @@
   eventtitle = {2020 {{IEEE}} 3rd {{International Conference}} on {{Information Communication}} and {{Signal Processing}} ({{ICICSP}})},
   keywords = {cascaded conditional generative adversarial networks,Deep learning,Gallium nitride,Generative adversarial networks,Generators,Image edge detection,Remote sensing,remote sensing images,residual dense block,Training,wasserstein generative adversarial networks},
   file = {/Users/th25/Zotero/storage/AIWULTBJ/Liu et al. - 2020 - A Super Resolution Method for Remote Sensing Images Based on Cascaded Conditional Wasserstein GANs.pdf}
+}
+
+@article{maAIBasedDownscalingMODIS2025,
+  title = {{{AI-Based Downscaling}} of {{MODIS LST Using SRDA-Net Model}} for {{High-Resolution Data Generation}}},
+  author = {Ma, Hongxia and Mao, Kebiao and Yuan, Zijin and Xu, Longhao and Shi, Jiancheng and Guo, Zhonghua and Qin, Zhihao},
+  date = {2025-01},
+  journaltitle = {Remote Sensing},
+  volume = {17},
+  number = {21},
+  pages = {3510},
+  publisher = {Multidisciplinary Digital Publishing Institute},
+  issn = {2072-4292},
+  doi = {10.3390/rs17213510},
+  url = {https://www.mdpi.com/2072-4292/17/21/3510},
+  urldate = {2026-06-06},
+  abstract = {Land surface temperature (LST) is a critical parameter in agricultural drought monitoring, crop growth analysis, and climate change research. However, the challenge of acquiring high-resolution LST data with both fine spatial and temporal scales remains a significant obstacle in remote sensing applications. Despite the high temporal resolution afforded by daily MODIS LST observations, the coarse (1 km) spatial scale of these data restricts their applicability for studies demanding finer spatial resolution. To address this challenge, a novel deep learning-based approach is proposed for LST downscaling: the spatial resolution downscaling attention network (SRDA-Net). The model is designed to upscale the resolution of MODIS LST from 1000 m to 250 m, overcoming the shortcomings of traditional interpolation techniques in reconstructing spatial details, as well as reducing the reliance on linear models and multi-source high-temporal LST data typical of conventional fusion approaches. SRDA-Net captures the feature interaction between MODIS LST and auxiliary data through global resolution attention to address spatial heterogeneity. It further enhances the feature representation ability under heterogeneous surface conditions by optimizing multi-source features to handle heterogeneous data. Additionally, it strengthens the model of spatial dependency relationships through a multi-level feature refinement module. Moreover, this study constructs a composite loss function system that integrates physical mechanisms and data characteristics, ensuring the improvement of reconstruction details while maintaining numerical accuracy and model interpret-ability through a triple collaborative constraint mechanism. Experimental results show that the proposed model performs excellently in the simulation experiment (from 2000 m to 1000 m), with an MAE of 0.928 K and an R2 of 0.95. In farmland areas, the model performs particularly well (MAE = 0.615 K, R2 = 0.96, RMSE = 0.823 K), effectively supporting irrigation scheduling and crop health monitoring. It also maintains good vegetation heterogeneity expression ability in grassland areas, making it suitable for drought monitoring tasks. In the target downscaling experiment (from 1000 m to 500 m and 250 m), the model achieved an RMSE of 1.804 K, an MAE of 1.587 K, and an R2 of 0.915, confirming its stable generalization ability across multiple scales. This study supports agricultural drought warning and precise irrigation and provides data support for interdisciplinary applications such as climate change research and ecological monitoring, while offering a new approach to generating high spatio-temporal resolution LST.},
+  langid = {english},
+  keywords = {agriculture,downscaling,land surface temperature (LST),MODIS,SRDA-Net},
+  file = {/Users/th25/Zotero/storage/46R7LZ6E/Ma et al. - 2025 - AI-Based Downscaling of MODIS LST Using SRDA-Net Model for High-Resolution Data Generation.pdf}
 }
 
 @article{mccarthyDeepLearningApproach2021,
@@ -337,6 +390,58 @@
   file = {/Users/th25/Zotero/storage/M6B6MTJV/Sun et al. - 2024 - A Single-Frame and Multi-Frame Cascaded Image Super-Resolution Method.pdf}
 }
 
+@online{wangDeepLearningImage2020,
+  title = {Deep {{Learning}} for {{Image Super-resolution}}: {{A Survey}}},
+  shorttitle = {Deep {{Learning}} for {{Image Super-resolution}}},
+  author = {Wang, Zhihao and Chen, Jian and Hoi, Steven C. H.},
+  date = {2020-02-08},
+  eprint = {1902.06068},
+  eprinttype = {arXiv},
+  eprintclass = {cs.CV},
+  doi = {10.48550/arXiv.1902.06068},
+  url = {http://arxiv.org/abs/1902.06068},
+  urldate = {2026-06-07},
+  abstract = {Image Super-Resolution (SR) is an important class of image processing techniques to enhance the resolution of images and videos in computer vision. Recent years have witnessed remarkable progress of image super-resolution using deep learning techniques. This article aims to provide a comprehensive survey on recent advances of image super-resolution using deep learning approaches. In general, we can roughly group the existing studies of SR techniques into three major categories: supervised SR, unsupervised SR, and domain-specific SR. In addition, we also cover some other important issues, such as publicly available benchmark datasets and performance evaluation metrics. Finally, we conclude this survey by highlighting several future directions and open issues which should be further addressed by the community in the future.},
+  pubstate = {prepublished},
+  keywords = {Computer Science - Computer Vision and Pattern Recognition},
+  file = {/Users/th25/Zotero/storage/XN6RMC8P/Wang et al. - 2020 - Deep Learning for Image Super-resolution A Survey.pdf;/Users/th25/Zotero/storage/58FVKW4U/1902.html}
+}
+
+@article{wangHybridAttentionBasedUShaped2023,
+  title = {Hybrid {{Attention-Based U-Shaped Network}} for {{Remote Sensing Image Super-Resolution}}},
+  author = {Wang, Jiarui and Wang, Binglu and Wang, Xiaoxu and Zhao, Yongqiang and Long, Teng},
+  date = {2023},
+  journaltitle = {IEEE Transactions on Geoscience and Remote Sensing},
+  volume = {61},
+  pages = {1--15},
+  issn = {1558-0644},
+  doi = {10.1109/TGRS.2023.3283769},
+  url = {https://ieeexplore.ieee.org/abstract/document/10145829},
+  urldate = {2026-06-06},
+  abstract = {Recently, remote sensing image super-resolution (RSISR) has drawn considerable attention and made great breakthroughs based on convolutional neural networks (CNNs). Due to the scale and richness of texture and structural information frequently recurring inside the same remote sensing images (RSIs) but varying greatly with different RSIs, state-of-the-art CNN-based methods have begun to explore the multiscale global features in RSIs by using attention mechanisms. However, they are still insufficient to explore significant content attention clues in RSIs. In this article, we present a new hybrid attention-based U-shaped network (HAUNet) for RSISR to effectively explore the multiscale features and enhance the global feature representation by hybrid convolution-based attention. It contains two kinds of convolutional attention-based single-scale feature extraction modules (SEM) to explore the global spatial context information and abstract content information, and a cross-scale interaction module (CIM) as the skip connection between different scale feature outputs of encoders to bridge the semantic and resolution gaps between them. Considering the existence of equipment with poor hardware facilities, we further design a lighter HAUNet-S with about 596K parameters. Experimental attribution analysis method LAM results demonstrate that our HAUNet is a more efficient way to capture meaningful content information and quantitative results can show that our HAUNet can significantly improve the performance of RSISR on four remote sensing test datasets. Meanwhile, HAUNET-S also maintains competitive performance. Our code is available at https://github.com/likakakaka/HAUNet\_RSISR.},
+  keywords = {Convolutional network,Feature extraction,Image reconstruction,multiscale features,Remote sensing,remote sensing image super-resolution (RSISR),Semantics,Superresolution,Task analysis,Transformers},
+  file = {/Users/th25/Zotero/storage/DFYFC39L/Wang et al. - 2023 - Hybrid Attention-Based U-Shaped Network for Remote Sensing Image Super-Resolution.pdf}
+}
+
+@article{wangInformationGuidedDiffusionModel2025,
+  title = {Information-{{Guided Diffusion Model}} for {{Downscaling Land Surface Temperature}} from {{SDGSAT-1 Remote Sensing Images}}},
+  author = {Wang, Jianxin and Fu, Zhitao and Tang, Bohui and Xu, Jianhui},
+  date = {2025-01},
+  journaltitle = {Remote Sensing},
+  volume = {17},
+  number = {10},
+  pages = {1669},
+  publisher = {Multidisciplinary Digital Publishing Institute},
+  issn = {2072-4292},
+  doi = {10.3390/rs17101669},
+  url = {https://www.mdpi.com/2072-4292/17/10/1669},
+  urldate = {2026-06-06},
+  abstract = {Land Surface Temperature (LST) is a parameter retrieved through the thermal infrared band of remote sensing satellites, and it is a crucial parameter in various climate and environmental models. Compared to other multispectral bands, the thermal infrared bands have lower spatial resolution, which limits their practical applications. Taking the Heihe River Basin in China as a case study, this research focuses on LST data retrieved from the SDGSAT-1 using the three-channel split-window algorithm. In this paper, we propose a novel approach, the Information-Guided Diffusion Model (IGDM), and apply it to downscale the SDGSAT-1 LST image. The results indicate that the downscaling accuracy of the SDGSAT-1 LST image using the proposed IGDM model outperforms that of Linear, Enhanced Deep Super-Resolution Network (EDSR), Super-Resolution Convolutional Neural Network (SRCNN), Discrete Cosine Transform and Local Spatial Attention (DCTLSA), and Denoising Diffusion Probabilistic Models (DDPM). Specifically, the RMSE of IGDM is reduced by 55.16\%, 51.29\%, 48.39\%, 52.88\%, and 17.18\%. By incorporating auxiliary information, particularly when using NDVI and NDWI as auxiliary inputs, the performance of the IGDM model is significantly improved. Compared to DDPM, the RMSE of IGDM decreased from 0.666 to 0.574, MAE dropped from 0.517 to 0.376, and PSNR increased from 38.55 to 40.27. Overall, the results highlight the effectiveness of the auxiliary information-guided SDGSAT-1 LST downscaling diffusion model in generating high-resolution remote sensing LST data. Additionally, the study reveals the spatial feature impact of different auxiliary information in LST downscaling and the variations in features across different regions and temperature ranges.},
+  langid = {english},
+  keywords = {deep learning,diffusion model,downscaling,land surface temperature},
+  file = {/Users/th25/Zotero/storage/4NH3QZG8/Wang et al. - 2025 - Information-Guided Diffusion Model for Downscaling Land Surface Temperature from SDGSAT-1 Remote Sen.pdf}
+}
+
 @article{wangRESSTFSpatioTemporal2024,
   title = {{{RES-STF}}: {{Spatio}} Temporal {{Fusion}} of {{Visible Infrared Imaging Radiometer Suite}} and {{Landsat Land Surface Temperature Based}} on {{Restormer}}},
   shorttitle = {{{RES-STF}}},
@@ -386,6 +491,23 @@
   pubstate = {prepublished},
   keywords = {Computer Science - Computer Vision and Pattern Recognition},
   file = {/Users/th25/Zotero/storage/S9AVZ8RV/Wang et al. - 2025 - VGGT Visual Geometry Grounded Transformer.pdf;/Users/th25/Zotero/storage/B628XEGF/2503.html}
+}
+
+@online{xiaoEDiffSREfficientDiffusion2023,
+  title = {{{EDiffSR}}: {{An Efficient Diffusion Probabilistic Model}} for {{Remote Sensing Image Super-Resolution}}},
+  shorttitle = {{{EDiffSR}}},
+  author = {Xiao, Yi and Yuan, Qiangqiang and Jiang, Kui and He, Jiang and Jin, Xianyu and Zhang, Liangpei},
+  date = {2023-10-30},
+  eprint = {2310.19288},
+  eprinttype = {arXiv},
+  eprintclass = {eess.IV},
+  doi = {10.48550/arXiv.2310.19288},
+  url = {http://arxiv.org/abs/2310.19288},
+  urldate = {2026-06-06},
+  abstract = {Recently, convolutional networks have achieved remarkable development in remote sensing image Super-Resoltuion (SR) by minimizing the regression objectives, e.g., MSE loss. However, despite achieving impressive performance, these methods often suffer from poor visual quality with over-smooth issues. Generative adversarial networks have the potential to infer intricate details, but they are easy to collapse, resulting in undesirable artifacts. To mitigate these issues, in this paper, we first introduce Diffusion Probabilistic Model (DPM) for efficient remote sensing image SR, dubbed EDiffSR. EDiffSR is easy to train and maintains the merits of DPM in generating perceptual-pleasant images. Specifically, different from previous works using heavy UNet for noise prediction, we develop an Efficient Activation Network (EANet) to achieve favorable noise prediction performance by simplified channel attention and simple gate operation, which dramatically reduces the computational budget. Moreover, to introduce more valuable prior knowledge into the proposed EDiffSR, a practical Conditional Prior Enhancement Module (CPEM) is developed to help extract an enriched condition. Unlike most DPM-based SR models that directly generate conditions by amplifying LR images, the proposed CPEM helps to retain more informative cues for accurate SR. Extensive experiments on four remote sensing datasets demonstrate that EDiffSR can restore visual-pleasant images on simulated and real-world remote sensing images, both quantitatively and qualitatively. The code of EDiffSR will be available at https://github.com/XY-boy/EDiffSR},
+  pubstate = {prepublished},
+  keywords = {Computer Science - Computer Vision and Pattern Recognition,Electrical Engineering and Systems Science - Image and Video Processing},
+  file = {/Users/th25/Zotero/storage/A9STKT9N/Xiao et al. - 2023 - EDiffSR An Efficient Diffusion Probabilistic Model for Remote Sensing Image Super-Resolution.pdf;/Users/th25/Zotero/storage/N7YKFW7G/2310.html}
 }
 
 @article{yuProbabilisticApproachWildfire2026,
