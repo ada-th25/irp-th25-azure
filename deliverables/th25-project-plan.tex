@@ -54,7 +54,7 @@
     
     \vspace{2.5cm}
     
-    {\LARGE\bfseries High-Resolution Spatial Downscaling of Wildfire Data \par}
+    {\LARGE\bfseries Comparison of Direct and Cascaded High-Resolution Spatial Downscaling of Wildfire Data \par}
     
     \vspace{3cm}
     
@@ -97,7 +97,7 @@ Wildfires are destructive and a rapidly evolving hazard. With climate change, th
 \section{Problem Description and Motivation}
 In recent years, due to rising popularity in Net-Zero initiatives, carbon investors are increasingly funding carbon reduction and removal projects, such as reforestation (\cite{InvestmentTrendsOutcomes}). However, these carbon projects are at risk because wildfires can destroy and release the carbon back into the atmosphere. With climate change, wildfires are becoming increasingly severe and frequent (\cite{jonesClimateChangeIncreases,}). Which increases the need for better wildfire monitoring and prediction for risk assessment. This means high-spatial and high-temporal resolution wildfire data is highly desired. However, high-temporal resolution data obtained from geostationary satellites (GEO) have limited spatial resolution, which makes them difficult to use for accurate risk assessment. While low orbit satellites (LEO) offers high-spatial resolution, but low-temporal resolution.
 
-To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate physically implausible outputs.
+To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate physically implausible outputs. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net, a transformer-based model, and a diffusion-based model.
 
 \section{Literature Review}
 \subsection{Current State of Remote Sensing Downscaling}
@@ -105,10 +105,17 @@ Traditional downscaling methods often fail to capture the complex non-linear pat
 
 However, many of these approaches have limitations, particularly in preserving fine-grained textures and geometric structures (\cite{qiAdvancingImageSuperresolution2026}). This is problematic for wildfire data, where the spatial patterns and textures are crucial for accurate risk assessment. To address these limitations, there is a need for domain-specific architectures that can better capture the characteristics of wildfire data.
 
-\subsection{Downscaling Architectures}
-Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses a hybrid attention mechanism to fuse multiscale, local and global features. This allows it to capture both fine-grained details and broader contextual information, making it a strong baseline for capturing spatially heterogeneous patterns in wildfire data. ESTNet (\cite{kangEfficientSwinTransformer2024}) is a transformer-based architecture that uses efficient spatial-temporal attention to capture long-range dependencies in the data. EDiffSR (\cite{xiaoEDiffSREfficientDiffusion2023}) is a diffusion-based model that iteratively refines the output, which can help in generating sharper and more detailed images.
+In the current literature, there is also a lack of studies that compares the performance of direct and cascaded downscaling pipelines. Cascaded downscaling has the potential to mitigate the issue of physically implausible outputs by breaking up the downscaling process into smaller steps. Some studies have explored cascaded approach, such as \cite{jingCascadedDownscalingCalibration2022}, and \cite{chenCascadedLocalImplicit2023}, but more research is needed to fully understand its benefits and limitations in the context of wildfires. However, it also introduces additional complexity and computational cost. Therefore, research is needed to investigate whether there are significant benefits to cascaded downscaling.
 
-\section{Problem Description and Objectives}
+\subsection{Selected Downscaling Architectures for Comparison}
+Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses a hybrid attention mechanism to fuse multiscale, local and global features. This allows it to capture both fine-grained details and broader contextual information. HAUNet will be selected as one of the architectures for comparison. Because while U-Nets capture spatial features effectively, combining them with attention mechanism makes it a strong baseline for capturing spatially heterogeneous patterns in wildfire data.
+
+ESTNet (\cite{kangEfficientSwinTransformer2024}) is a transformer-based architecture that uses efficient spatial-temporal attention to capture long-range dependencies in the data. It is based on Swin-Transformers with group attention. It uses multi-window self-attention for better efficiency without sacrificing reconstruction quality. For transformer-based approach, ESTNet will be selected for comparison due to their ability in capturing long-range dependencies, making them a suitable candidate for downscaling wildfire data, which has complex spatial patterns. ESTNet specifically is preferred over alternatives such as SwinIR (\cite{liangSwinIRImageRestoration2021}) because their efficiency makes them more suitable for the large amount of data and inputs used in this project.
+
+EDiffSR (\cite{xiaoEDiffSREfficientDiffusion2023}) is a conditional diffusion-based model. It uses simplified channel attention for better noise prediction quality, and Conditional Prior Enhancement Module (CPEM) to extract the most valuable information from the LR input. EDiffSR is selected as the diffusion-based model for comparison because it effectively leverages prior information and promotes the condition with more informative input.
+
+\section{Methodology}
+The selected architectures (HAUNet, ESTNet, EDiffSR) for comparison is tentatively selected based on their performance in super-resolution tasks, and their suitability for the specific requirements of the wildfire downscaling. However, the final selection may be adjusted as the project progresses.
 
 \section{Progress to Date}
 
