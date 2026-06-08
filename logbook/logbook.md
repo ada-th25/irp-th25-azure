@@ -50,3 +50,15 @@
     - Look into the literature carefully, finalise a decision on what architecture to use for downscaling.
     - Start writing the project plan, even if the final selected methods are different.
     - Look into how to process the data.
+
+### Meeting with Main Supervisor (8 Jun 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Explained that the main research will focus on comparing downscaling pipelines with different types of architectures rather than comparing ones of the same kind.
+    - Discussed how to process and store the large amounts of data for this project. Google Cloud Platform will be used.
+- **Feedback:**
+    - Google Cloud Platform will be used. Access to paid computing resources will be given.
+- **Work Plan Before Next Meeting:**
+    - Finish up the project plan.
+    - Look into how to use Google Cloud Platform for this project.
+    - Start looking into building a data acquisition pipeline.
