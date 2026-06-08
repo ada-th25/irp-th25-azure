@@ -1,7 +1,9 @@
 \documentclass[a4paper, 11pt]{article}
 
 % Packages
+\usepackage{booktabs}
 \usepackage{graphicx}
+\usepackage{array}
 \usepackage{amsmath}
 \usepackage{authblk}
 \usepackage{appendix}
@@ -105,9 +107,9 @@ Traditional downscaling methods often fail to capture the complex non-linear pat
 
 However, many of these approaches have limitations, particularly in preserving fine-grained textures and geometric structures (\cite{qiAdvancingImageSuperresolution2026}). This is problematic for wildfire data, where the spatial patterns and textures are crucial for accurate risk assessment. To address these limitations, there is a need for domain-specific architectures that can better capture the characteristics of wildfire data.
 
-In the current literature, there is also a lack of studies that compares the performance of direct and cascaded downscaling pipelines. Some studies have explored cascaded approaches, such as AMCN-Geoi-DBN from \cite{jingCascadedDownscalingCalibration2022}, and CLIT from \cite{chenCascadedLocalImplicit2023}, but more research is needed to fully understand its benefits and limitations in the context of wildfires. Cascaded downscaling could also introduce additional complexity and computational cost. Therefore more research is needed to also investigate whether there are significant benefits to cascaded downscaling.
+In the current literature, there is also a lack of studies that compares the performance of direct and cascaded downscaling pipelines. Some studies have explored cascaded approaches, such as AMCN-Geoi-DBN from \cite{jingCascadedDownscalingCalibration2022}, and CLIT from \cite{chenCascadedLocalImplicit2023}, but more research is needed to fully understand the benefits and limitations in the context of wildfires. Cascaded downscaling could also introduce additional complexity and computational cost. Therefore more research is needed to also investigate whether there are significant benefits to cascaded downscaling.
 
-\subsection{Selected Downscaling Architectures for Comparison}
+\subsection{Selected Downscaling Architectures for Comparison} \label{sec:architectures}
 \subsubsection{HAUNet}
 Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses a hybrid attention mechanism to fuse multiscale, local and global features. This allows it to capture both fine-grained details and broader contextual information. HAUNet will be selected as one of the architectures for comparison. Because while U-Nets capture spatial features effectively, combining them with attention mechanism makes it a strong baseline for capturing spatially heterogeneous patterns in wildfire data.
 
@@ -118,11 +120,11 @@ ESTNet (\cite{kangEfficientSwinTransformer2024}) is a transformer-based architec
 EDiffSR (\cite{xiaoEDiffSREfficientDiffusion2023}) is a conditional diffusion-based model. It uses simplified channel attention for better noise prediction quality, and Conditional Prior Enhancement Module (CPEM) to extract the most valuable information from the LR input. EDiffSR is selected as the diffusion-based model for comparison because it effectively leverages prior information and promotes the condition with more informative input.
 
 \section{Methodology}
-The architectures (HAUNet, ESTNet, EDiffSR) for comparison is tentatively selected based on their performance in super-resolution tasks, and their suitability for the specific requirements of the wildfire downscaling. However, the final selection may be adjusted as the project progresses. Similarly, the dataset used may be adjusted based on availability and relevance.
+The architectures (HAUNet, ESTNet, EDiffSR) for comparison is tentatively selected based on their performance in super-resolution tasks, and their suitability for the specific requirements of the wildfire downscaling. The reasons for selecting each architecture are outlined in \ref{sec:architectures}. However, the final selection of architectures and datasets may be adjusted as the project progresses. 
 
 \subsection{Datasets}
 \subsubsection{Input Datasets}
-The tentative input data are:
+The input data are:
 \begin{itemize}
     \item GOES-17 channel 7 (IR shortwave) of Level 1B (L1B) Radiances product (ABI-L1B-Rad). Has spatial resolution of 2km at every 5 mins. This channel is selected because it is commonly used to identify hot regions (\cite{badhanDeepLearningApproach2024}). This will be the main coarse input.
     \item Copernicus DEM GLO-30: Global 30m Digital Elevation Model with 30m resolution (\cite{europeanspaceagencyCopernicus2022}). DEM band will be used.
@@ -134,16 +136,71 @@ The tentative input data are:
 The target data are:
 \begin{itemize}
     \item  VIIRS (S-NPP) Band Active Fire with 375 m spatial resolution, VNP14IMGTDL\_NR (\cite{earthsciencedatasystemsVIIRSSNPPBand2025}) will be used as the target data for the 2km to 375m stage downscaling. The I-4 channel brightness temperature (3.55-3.93 µm) band will be used.
-    \item Landsat-8 active fire dataset includes fire masks of fire scenes taken from August and September 2020 with 30m resolution (\cite{dealmeidapereiraActiveFireDetection2021}). This will be the target data for the final 375m to 30m stage downscaling. The paper uses SWIR and thermal bands for automatic fire detection to generate the masks.
+    \item Landsat-8 active fire dataset includes data for fire scenes taken from August and September 2020 with 30m resolution (\cite{dealmeidapereiraActiveFireDetection2021}). This will be the target data for the final 375m to 30m stage downscaling. Fire-sensitive SWIR and thermal bands will be used.
 \end{itemize}
 
 \subsection{Experimental Design}
+The project will evaluate the performance of the selected architectures in both direct and cascaded downscaling pipelines. The direct pipeline will involve training the model to directly downscale from 2km to 30m resolution. The cascaded pipeline will involve two stages: the first stage downscales from 2km to 375m (trained on GOES and VIIRS data), and the second stage will further downscale from 375m to 30m (trained on VIIRS and Landsat-8 data). The final 30m resolution output from both pipelines will be compared against the Landsat-8 active fire dataset for evaluation.
+
+\begin{table}[h]
+\centering
+\caption{Summary of Experimental Configurations}
+\label{tab:experiments}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llllll}
+\toprule
+\textbf{Experiment} & \textbf{Architecture} & \textbf{Pipeline} & \textbf{Input Resolution} & \textbf{Output Resolution} & \textbf{Model Type} \\
+\midrule
+E1 & HAUNet & Direct & 2km (GOES-17) & 30m (Landsat-8) & Hybrid Attention U-Net \\
+\addlinespace
+E2 & HAUNet & Cascaded & 
+    \begin{tabular}[t]{@{}l@{}}Stage 1: 2km $\rightarrow$ 375m\\Stage 2: 375m $\rightarrow$ 30m\end{tabular} & 
+    30m (Landsat-8) & Hybrid Attention U-Net \\
+\addlinespace
+E3 & EDiffSR & Direct & 2km (GOES-17) & 30m (Landsat-8) & Diffusion \\
+\addlinespace
+E4 & EDiffSR & Cascaded & 
+    \begin{tabular}[t]{@{}l@{}}Stage 1: 2km $\rightarrow$ 375m\\Stage 2: 375m $\rightarrow$ 30m\end{tabular} & 
+    30m (Landsat-8) & Diffusion \\
+\addlinespace
+E5 & ESTNet & Direct & 2km (GOES-17) & 30m (Landsat-8) & Transformer \\
+\addlinespace
+E6 & ESTNet & Cascaded & 
+    \begin{tabular}[t]{@{}l@{}}Stage 1: 2km $\rightarrow$ 375m\\Stage 2: 375m $\rightarrow$ 30m\end{tabular} & 
+    30m (Landsat-8) & Transformer \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
 
 \subsection{Evaluation Metrics}
+The metrics for evaluation will include:
+\begin{itemize}
+    \item Fréchet Inception Distance (FID): Measures the distance between the distribution of generated images and real images. Lower FID indicates better alignment.
+    \item Peak Signal-to-Noise Ratio (PSNR): Measures how well the reconstructed image preserves the image quality. Higher PSNR indicates better quality.
+    \item Structural Similarity Index (SSIM): Measures the similarity between two images based on their structural information. Higher SSIM indicates better quality.
+    \item Coarse-Grid to Fine-Grid Mean Squared Error (CG-FG MSE): Measures the MSE between the coarse-grid input and the target data. This quantifies the baseline error generated by simply interpolating lower-resolution data.
+    \item Super-Resolution to Fine-Grid Mean Squared Error (SR-FG MSE): Measures the MSE between the downscaled output and the target data. Lower MSE indicates better performance.
+\end{itemize}
 
 \section{Progress to Date}
+The project is currently in the early stages of data collection and preprocessing. The data acquisition and processing pipeline is being developed. The key milestones for the project is shown in \cref{fig:gantt_chart}.
 
 \section{Future Plans}
+The next steps for the project include:
+\begin{enumerate}
+    \item Developing the data preprocessing pipeline to prepare the input and target datasets for training. This includes aligning the datasets spatially and temporally, and integrating the additional covariates.
+    \item Implementing the selected architectures and training them on the respective datasets for both direct and cascaded pipelines.
+    \item Evaluating the performance of the models using the defined metrics and comparing the results between direct and cascaded pipelines.
+    \item Conducting a detailed analysis of the results to understand the strengths and limitations of each approach, and identifying potential areas for improvement.
+    \item Preparing the final report and presentation summarising the findings and insights from the project.
+\end{enumerate}
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{/Users/th25/irp-th25/deliverables/figures/project-plan-gnatt-chart.png}
+    \caption{Gantt Chart of Project Timeline and Milestones}
+    \label{fig:gantt_chart}
+\end{figure}
 
 \printbibliography
 
