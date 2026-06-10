@@ -1,8 +1,0 @@
-google-cloud-storage
-satpy
-pyproj
-s3fs
-numpy
-rasterio
-pandas
-pyresample
