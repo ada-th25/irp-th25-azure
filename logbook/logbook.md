@@ -62,3 +62,13 @@
     - Finish up the project plan.
     - Look into how to use Google Cloud Platform for this project.
     - Start looking into building a data acquisition pipeline.
+
+### Meeting with Main Supervisor (10 Jun 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Received feedback on project plan.
+    - Briefly explained the progress on working on the data pipeline.
+- **Feedback:**
+    - Edit the project plan to highlight the novel research, and highlight the research motivation in context of insurance.
+- **Work Plan Before Next Meeting:**
+    - Develop a pipline to extract and process the data needed via Google Cloud Platform.
