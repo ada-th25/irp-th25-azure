@@ -1,3 +1,4 @@
+# Ignore extra Latex files
 *.aux
 *.bbl
 *.blg
@@ -10,3 +11,11 @@
 *.bcf
 *.run.xml
 *.bbl-SAVE-ERROR
+
+# Ignore data files
+*.nc
+*.csv
+*.tif
+*.tiff
+*.geojson
+data/
