@@ -1,3 +1,7 @@
+This file contains references, licenses, and AI disclosures specific to the codebase in this repository.
+
+**Academic Citations:** For bibliography and references related to the written report, please see [`deliverables/references.bib`](./deliverables/references.bib).
+
 # AI Usage
 
 * **Tool:** Google Gemini (3.5)
