@@ -64,6 +64,36 @@ LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rena
 COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
 
 # ==========================================
+# NASA VIIRS ARCHIVE: LOAD + FILTER
+# ==========================================
+VIIRS_CSV_PATH = "raw-viirs/fire_archive_SV-C2_762484.csv"
+
+if not os.path.exists(VIIRS_CSV_PATH):
+    raise FileNotFoundError(f"Missing local NASA catalog asset at: {VIIRS_CSV_PATH}.")
+
+print("Loading NASA VIIRS Archive CSV into memory...")
+df_viirs = pd.read_csv(VIIRS_CSV_PATH)
+df_viirs.columns = df_viirs.columns.str.strip()
+
+if 'acq_date' not in df_viirs.columns:
+    raise KeyError("Missing required column 'acq_date' in source file.")
+df_viirs['acq_date'] = pd.to_datetime(df_viirs['acq_date'])
+print(f"Loaded {len(df_viirs)} raw archive detections.")
+
+if 'confidence' in df_viirs.columns:
+    df_viirs['confidence'] = df_viirs['confidence'].astype(str).str.strip().str.lower()
+    before = len(df_viirs)
+    df_viirs = df_viirs[df_viirs['confidence'].isin(['n', 'h', 'nominal', 'high'])]
+    print(f"Confidence filter (nominal/high only): kept {len(df_viirs)}/{before} detections.")
+else:
+    print("Warning: no 'confidence' column found in archive CSV - confidence filter skipped.")
+
+df_viirs = df_viirs[
+    (df_viirs['acq_date'] >= VIIRS_DATE_RANGE[0]) & (df_viirs['acq_date'] <= VIIRS_DATE_RANGE[1])
+]
+print(f"VIIRS branch pool after Aug-Sep-2020 filtering: {len(df_viirs)} detections.")
+
+# ==========================================
 # CORE UTILITIES
 # ==========================================
 def gcs_exists(path_prefix):
