@@ -21,45 +21,47 @@ import pandas as pd
 credentials, project = default()
 storage_client = storage.Client(credentials=credentials)
 ee.Initialize(credentials=credentials, project='wildfire-irp')
- 
+
 BUCKET_NAME = "wildfire-irp-data-th25"
 bucket = storage_client.bucket(BUCKET_NAME)
 
 print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix="processed_dataset/"))
- 
+
+# ==========================================
+# REGION / TIME CONSTANTS
+# ==========================================
 AMERICAS_LON_BOUNDS = [-170.0, -30.0]
- 
-GOES_TEMPORAL_GUARD_MIN = 15        # Max temporal gap allowed (minutes)
-VIIRS_SEARCH_WINDOW_DAYS = 3        # Search window for matching orbital overpasses
-VIIRS_PASS_GROUP_HOURS = 12          # Window to compile FIRMS swathes
 
-# Uniform Spatial Grids for Multitask Learning (Badhan et al. alignment)
-LANDSAT_GRID_SCALE = 30             # 30m target resolution for Landsat structures
-VIIRS_GRID_SCALE = 375              # 375m target resolution for VIIRS systems
+VIIRS_POOL_BUFFER_DEG = 2.0
 
-# Global Asset Pipelines
+# Same time period as the Pereira et al. Landsat-8 dataset (Aug-Sep 2020).
+VIIRS_DATE_RANGE = ("2020-08-01", "2020-09-30")
+
+# ==========================================
+# RESOLUTION / EXTENT CONSTANTS
+# ==========================================
+GOES_TEMPORAL_GUARD_MIN = 15     # Max temporal gap allowed between target time and GOES scene (minutes)
+GOES_NATIVE_SCALE_M = 2000        # Native GOES ABI grid spacing
+
+LANDSAT_GRID_SCALE = 30           # 30m target resolution for Landsat branch
+VIIRS_GRID_SCALE = 375            # 375m target resolution for VIIRS branch
+
+LANDSAT_TARGET_EXTENT_M = 128 * LANDSAT_GRID_SCALE    # 3840m - fixed by Pereira 128x128 at 30m patches
+
+VIIRS_TARGET_PIXELS = 32
+VIIRS_TARGET_EXTENT_M = VIIRS_TARGET_PIXELS * VIIRS_GRID_SCALE  # 12000m
+
+CONTEXT_RATIO = 10  # context extent = CONTEXT_RATIO x target extent (centre-aligned, fixed)
+LANDSAT_CONTEXT_EXTENT_M = CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 38400m  (~19x19 GOES px)
+VIIRS_CONTEXT_EXTENT_M = CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M      # 120000m (~60x60 GOES px)
+
+# ==========================================
+# COVARIATES
+# ==========================================
 DEM_ASSET = ee.ImageCollection("COPERNICUS/DEM/GLO30").select('DEM').mosaic().rename(['elevation'])
 LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rename(['landcover'])
 COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
-
-# ==========================================
-# NASA ARCHIVE CONFIGURATION
-# ==========================================
-VIIRS_CSV_PATH = "raw-viirs/fire_archive_SV-C2_762484.csv"
-
-if not os.path.exists(VIIRS_CSV_PATH):
-    raise FileNotFoundError(f"Missing local NASA catalog asset at: {VIIRS_CSV_PATH}.")
-
-print("Loading NASA VIIRS Archive CSV into memory...")
-df_viirs = pd.read_csv(VIIRS_CSV_PATH)
-df_viirs.columns = df_viirs.columns.str.strip()
-
-if 'acq_date' in df_viirs.columns:
-    df_viirs['acq_date'] = pd.to_datetime(df_viirs['acq_date'])
-    print(f"Successfully cached {len(df_viirs)} archive tracking coordinates from local catalog.")
-else:
-    raise KeyError("Missing required column 'acq_date' in source file.")
 
 # ==========================================
 # GCS HELPERS
@@ -128,48 +130,6 @@ def fetch_goes_fire_features(roi, lon_cen, target_date_ee, target_scale):
     # TFI calculation on the expanded region
     tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
     return closest.addBands(tfi).clip(context_roi), context_roi
-
-def fetch_viirs_local_triage(meta):
-    lon_min, lat_min, lon_max, lat_max = meta["bbox"]
-    landsat_date = datetime.strptime(meta["date"], "%Y-%m-%d")
-    
-    start_date = landsat_date - timedelta(days=VIIRS_SEARCH_WINDOW_DAYS)
-    end_date = landsat_date + timedelta(days=VIIRS_SEARCH_WINDOW_DAYS)
-    
-    spatial_mask = (
-        (df_viirs['longitude'] >= lon_min) & (df_viirs['longitude'] <= lon_max) &
-        (df_viirs['latitude'] >= lat_min) & (df_viirs['latitude'] <= lat_max)
-    )
-    temporal_mask = (df_viirs['acq_date'] >= start_date) & (df_viirs['acq_date'] <= end_date)
-    
-    matched_points = df_viirs[spatial_mask & temporal_mask]
-    
-    if matched_points.empty:
-        return None, 0.0, None, None
-    
-    max_frp_val = float(matched_points['frp'].max())
-    
-    matched_points = matched_points.copy()
-    matched_points['time_diff'] = (matched_points['acq_date'] - landsat_date).abs()
-    best_row = matched_points.sort_values('time_diff').iloc[0]
-    
-    viirs_date_str = f"{best_row['acq_date'].strftime('%Y%m%d')}_{best_row['acq_time']:04d}"
-    
-    features = []
-    for _, row in matched_points.iterrows():
-        geom = ee.Geometry.Point([row['longitude'], row['latitude']])
-        features.append(ee.Feature(geom, {'frp': float(row['frp'])}))
-        
-    ee_feature_collection = ee.FeatureCollection(features)
-    
-    acq_time_str = f"{best_row['acq_time']:04d}"
-    best_datetime = datetime.combine(
-        best_row['acq_date'].date(), 
-        datetime_time=datetime.strptime(acq_time_str, "%H%M").time()
-    )
-    ee_viirs_date = ee.Date(best_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    
-    return ee_feature_collection, max_frp_val, viirs_date_str, ee_viirs_date
 
 # ==========================================
 # EXECUTION LOOP
