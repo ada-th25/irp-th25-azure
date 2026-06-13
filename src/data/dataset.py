@@ -1,8 +1,19 @@
-import io, os, re, zipfile, tempfile, gdown, ee, rasterio, time
+import io
+import os
+import re
+import json
+import zipfile
+import tempfile
+import gdown
+import ee
+import rasterio
+import time
 from datetime import datetime, timedelta
 from pyproj import Transformer
 from google.cloud import storage
 from google.auth import default
+import numpy as np
+import pandas as pd
 
 # ==========================================
 # INITIALISATION
@@ -31,6 +42,24 @@ VIIRS_GRID_SCALE = 375              # 375m target resolution for VIIRS systems
 DEM_ASSET = ee.ImageCollection("COPERNICUS/DEM/GLO30").select('DEM').mosaic().rename(['elevation'])
 LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rename(['landcover'])
 COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
+
+# ==========================================
+# NASA ARCHIVE CONFIGURATION
+# ==========================================
+VIIRS_CSV_PATH = "raw-viirs/fire_archive_SV-C2_762484.csv"
+
+if not os.path.exists(VIIRS_CSV_PATH):
+    raise FileNotFoundError(f"Missing local NASA catalog asset at: {VIIRS_CSV_PATH}.")
+
+print("Loading NASA VIIRS Archive CSV into memory...")
+df_viirs = pd.read_csv(VIIRS_CSV_PATH)
+df_viirs.columns = df_viirs.columns.str.strip()
+
+if 'acq_date' in df_viirs.columns:
+    df_viirs['acq_date'] = pd.to_datetime(df_viirs['acq_date'])
+    print(f"Successfully cached {len(df_viirs)} archive tracking coordinates from local catalog.")
+else:
+    raise KeyError("Missing required column 'acq_date' in source file.")
 
 # ==========================================
 # GCS HELPERS
@@ -99,6 +128,48 @@ def fetch_goes_fire_features(roi, lon_cen, target_date_ee, target_scale):
     # TFI calculation on the expanded region
     tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
     return closest.addBands(tfi).clip(context_roi), context_roi
+
+def fetch_viirs_local_triage(meta):
+    lon_min, lat_min, lon_max, lat_max = meta["bbox"]
+    landsat_date = datetime.strptime(meta["date"], "%Y-%m-%d")
+    
+    start_date = landsat_date - timedelta(days=VIIRS_SEARCH_WINDOW_DAYS)
+    end_date = landsat_date + timedelta(days=VIIRS_SEARCH_WINDOW_DAYS)
+    
+    spatial_mask = (
+        (df_viirs['longitude'] >= lon_min) & (df_viirs['longitude'] <= lon_max) &
+        (df_viirs['latitude'] >= lat_min) & (df_viirs['latitude'] <= lat_max)
+    )
+    temporal_mask = (df_viirs['acq_date'] >= start_date) & (df_viirs['acq_date'] <= end_date)
+    
+    matched_points = df_viirs[spatial_mask & temporal_mask]
+    
+    if matched_points.empty:
+        return None, 0.0, None, None
+    
+    max_frp_val = float(matched_points['frp'].max())
+    
+    matched_points = matched_points.copy()
+    matched_points['time_diff'] = (matched_points['acq_date'] - landsat_date).abs()
+    best_row = matched_points.sort_values('time_diff').iloc[0]
+    
+    viirs_date_str = f"{best_row['acq_date'].strftime('%Y%m%d')}_{best_row['acq_time']:04d}"
+    
+    features = []
+    for _, row in matched_points.iterrows():
+        geom = ee.Geometry.Point([row['longitude'], row['latitude']])
+        features.append(ee.Feature(geom, {'frp': float(row['frp'])}))
+        
+    ee_feature_collection = ee.FeatureCollection(features)
+    
+    acq_time_str = f"{best_row['acq_time']:04d}"
+    best_datetime = datetime.combine(
+        best_row['acq_date'].date(), 
+        datetime_time=datetime.strptime(acq_time_str, "%H%M").time()
+    )
+    ee_viirs_date = ee.Date(best_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    
+    return ee_feature_collection, max_frp_val, viirs_date_str, ee_viirs_date
 
 # ==========================================
 # EXECUTION LOOP
