@@ -64,11 +64,34 @@ LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rena
 COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
 
 # ==========================================
-# GCS HELPERS
+# CORE UTILITIES
 # ==========================================
 def gcs_exists(path_prefix):
     return any(name.startswith(path_prefix) for name in existing_blobs)
- 
+
+# Geographic footprint of the Landsat patches actually processed this run -
+# used to spatially scope the decoupled VIIRS branch (see VIIRS_POOL_BUFFER_DEG).
+collected_patch_bboxes = []
+
+def compute_viirs_pool_bbox(patch_bboxes, buffer_deg=VIIRS_POOL_BUFFER_DEG):
+    """Union bounding box of all processed Landsat patches, expanded by
+    `buffer_deg` in each direction. Returns None if no patches were collected."""
+    if not patch_bboxes:
+        return None
+    lon_mins, lat_mins, lon_maxs, lat_maxs = zip(*patch_bboxes)
+    return [
+        min(lon_mins) - buffer_deg,
+        min(lat_mins) - buffer_deg,
+        max(lon_maxs) + buffer_deg,
+        max(lat_maxs) + buffer_deg,
+    ]
+
+def write_manifest(path, data):
+    """Small JSON sidecar so target/GOES-context/covariate files for a given
+    sample id can be matched up unambiguously at training time."""
+    blob = bucket.blob(path)
+    blob.upload_from_string(json.dumps(data, indent=2), content_type='application/json')
+
 def wait_for_queue_slot():
     while True:
         tasks = ee.batch.Task.list()
@@ -78,13 +101,18 @@ def wait_for_queue_slot():
         print(f"    [WAIT] GEE Engine saturated ({active_tasks} tasks). Sleeping 45s...")
         time.sleep(45)
 
+def build_roi(center_lon, center_lat, extent_m):
+    """Square ROI of side `extent_m`, centred on (center_lon, center_lat)."""
+    return ee.Geometry.Point([center_lon, center_lat]).buffer(extent_m / 2).bounds()
+
 def parse_zip_patch_metadata(file_bytes, filename):
     meta_match = re.search(r'LC08_[A-Z0-9]{4}_\d{6}_(\d{8})', filename)
     if not meta_match:
         return None
     date_str = meta_match.group(1)
     formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
- 
+
+    file_bytes.seek(0)  # Safety reset before reading
     with rasterio.MemoryFile(file_bytes) as memfile:
         with memfile.open() as src:
             bounds = src.bounds
