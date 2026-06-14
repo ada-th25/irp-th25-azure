@@ -267,6 +267,84 @@ def process_landsat_sample(meta, fb):
     })
 
 # ==========================================
+# BRANCH B: GOES <-> VIIRS
+# ==========================================
+def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
+    df = df.copy()
+    cell_deg = cell_extent_m / 111320.0
+    df['cell_lon'] = (df['longitude'] // cell_deg).astype(int)
+    df['cell_lat'] = (df['latitude'] // cell_deg).astype(int)
+    df['date_str'] = df['acq_date'].dt.strftime('%Y%m%d')
+    return df, cell_deg
+
+def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group_df):
+    target_prefix = f"processed_dataset/viirs_pairs/targets/VIIRS_{cluster_id}"
+    goes_prefix = f"processed_dataset/viirs_pairs/goes_context/GOES_{cluster_id}"
+    cov_prefix = f"processed_dataset/viirs_pairs/covariates/COV_{cluster_id}"
+    manifest_path = f"processed_dataset/viirs_pairs/manifest/{cluster_id}.json"
+
+    target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M)
+    context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M)
+
+    if not gcs_exists(target_prefix):
+        features = [
+            ee.Feature(ee.Geometry.Point([float(row['longitude']), float(row['latitude'])]), {'frp': float(row['frp'])})
+            for _, row in group_df.iterrows()
+        ]
+        viirs_img = (ee.FeatureCollection(features)
+                     .reduceToImage(properties=['frp'], reducer=ee.Reducer.max())
+                     .unmask(0)
+                     .rename('VIIRS_FRP')
+                     .clip(target_roi))
+        wait_for_queue_slot()
+        ee.batch.Export.image.toCloudStorage(
+            image=viirs_img, description=f"viirs_frp_{cluster_id}",
+            bucket=BUCKET_NAME, fileNamePrefix=target_prefix, region=target_roi,
+            scale=VIIRS_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+        ).start()
+        print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")
+
+    if not gcs_exists(goes_prefix):
+        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee_viirs_date)
+        wait_for_queue_slot()
+        ee.batch.Export.image.toCloudStorage(
+            image=goes_img, description=f"goes_vx_{cluster_id}",
+            bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
+            scale=GOES_NATIVE_SCALE_M, crs='EPSG:4326', fileFormat='GeoTIFF'
+        ).start()
+        print(f"    [DISPATCHED] GOES context export: {cluster_id}")
+
+    if not gcs_exists(cov_prefix):
+        wait_for_queue_slot()
+        ee.batch.Export.image.toCloudStorage(
+            image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
+            bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
+            scale=VIIRS_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+        ).start()
+        print(f"    [DISPATCHED] Covariate export: {cluster_id}")
+
+    write_manifest(manifest_path, {
+        "id": cluster_id,
+        "branch": "viirs",
+        "date": group_df['acq_date'].iloc[0].strftime("%Y-%m-%d"),
+        "center": [center_lon, center_lat],
+        "target_pixels": VIIRS_TARGET_PIXELS,
+        "target_extent_m": VIIRS_TARGET_EXTENT_M,
+        "target_scale_m": VIIRS_GRID_SCALE,
+        "context_ratio": VIIRS_CONTEXT_RATIO,
+        "context_extent_m": VIIRS_CONTEXT_EXTENT_M,
+        "goes_scale_m": GOES_NATIVE_SCALE_M,
+        "covariate_scale_m": VIIRS_GRID_SCALE,
+        "n_detections": int(len(group_df)),
+        "max_frp": float(group_df['frp'].max()),
+        "paths": {
+            "target": f"{target_prefix}.tif",
+            "goes_context": f"{goes_prefix}.tif",
+            "covariates": f"{cov_prefix}.tif",
+        }
+    })
+
+# ==========================================
 # EXECUTION LOOP
 # ==========================================
 if __name__ == "__main__":
