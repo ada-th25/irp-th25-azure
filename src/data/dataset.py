@@ -47,14 +47,19 @@ GOES_NATIVE_SCALE_M = 2000        # Native GOES ABI grid spacing
 LANDSAT_GRID_SCALE = 30           # 30m target resolution for Landsat branch
 VIIRS_GRID_SCALE = 375            # 375m target resolution for VIIRS branch
 
-LANDSAT_TARGET_EXTENT_M = 128 * LANDSAT_GRID_SCALE    # 3840m - fixed by Pereira 128x128 at 30m patches
+LANDSAT_TARGET_PIXELS = 256
+LANDSAT_TARGET_EXTENT_M = LANDSAT_TARGET_PIXELS * LANDSAT_GRID_SCALE  # 7680m - Pereira 256x256 @ 30m patches
 
 VIIRS_TARGET_PIXELS = 32
 VIIRS_TARGET_EXTENT_M = VIIRS_TARGET_PIXELS * VIIRS_GRID_SCALE  # 12000m
 
-CONTEXT_RATIO = 10  # context extent = CONTEXT_RATIO x target extent (centre-aligned, fixed)
-LANDSAT_CONTEXT_EXTENT_M = CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 38400m  (~19x19 GOES px)
-VIIRS_CONTEXT_EXTENT_M = CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M      # 120000m (~60x60 GOES px)
+LANDSAT_CONTEXT_RATIO = 4
+VIIRS_CONTEXT_RATIO = 10
+
+LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 30720m (~15x15 GOES px)
+VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M        # 120000m (~60x60 GOES px)
+
+MIN_ACTIVE_PIXELS = 2
 
 # ==========================================
 # COVARIATES
@@ -188,6 +193,78 @@ def fetch_goes_fire_features(roi, lon_cen, target_date_ee, target_scale):
     # TFI calculation on the expanded region
     tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
     return closest.addBands(tfi).clip(context_roi), context_roi
+
+# ==========================================
+# BRANCH A: GOES <-> LANDSAT
+# ==========================================
+def process_landsat_sample(meta, fb):
+    sample_id = meta['id']
+
+    target_prefix = f"processed_dataset/landsat_pairs/targets/LANDSAT_{sample_id}"
+    goes_prefix = f"processed_dataset/landsat_pairs/goes_context/GOES_{sample_id}"
+    cov_prefix = f"processed_dataset/landsat_pairs/covariates/COV_{sample_id}"
+    manifest_path = f"processed_dataset/landsat_pairs/manifest/{sample_id}.json"
+
+    try:
+        fb.seek(0)
+        with rasterio.open(fb) as src:
+            mask = src.read(1)
+        n_active_pixels = int(np.sum(mask == 1))
+        if n_active_pixels < MIN_ACTIVE_PIXELS:
+            print(f"    [SKIP landsat] Only {n_active_pixels} active fire pixel(s) "
+                  f"(< {MIN_ACTIVE_PIXELS}) for {sample_id}")
+            return
+    except Exception as e:
+        print(f"    [!] Failed to verify Landsat mask contents for {sample_id}: {e}")
+        return
+
+    center_lon, center_lat = meta['center']
+    context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M)
+
+    if not gcs_exists(target_prefix):
+        blob = bucket.blob(f"{target_prefix}.tif")
+        fb.seek(0)
+        blob.upload_from_file(fb, content_type='image/tiff')
+        print(f"    [SAVED] Landsat target: {sample_id} (n_active_pixels={n_active_pixels})")
+
+    if not gcs_exists(goes_prefix):
+        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['date']))
+        wait_for_queue_slot()
+        ee.batch.Export.image.toCloudStorage(
+            image=goes_img, description=f"goes_ls_{sample_id}",
+            bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
+            scale=GOES_NATIVE_SCALE_M, crs='EPSG:4326', fileFormat='GeoTIFF'
+        ).start()
+        print(f"    [DISPATCHED] GOES context export: {sample_id}")
+
+    if not gcs_exists(cov_prefix):
+        wait_for_queue_slot()
+        ee.batch.Export.image.toCloudStorage(
+            image=COVARIATE_STACK.clip(context_roi), description=f"cov_ls_{sample_id}",
+            bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
+            scale=LANDSAT_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+        ).start()
+        print(f"    [DISPATCHED] Covariate export: {sample_id}")
+
+    write_manifest(manifest_path, {
+        "id": sample_id,
+        "branch": "landsat",
+        "date": meta['date'],
+        "center": [center_lon, center_lat],
+        "n_active_pixels": n_active_pixels,
+        "target_pixels": LANDSAT_TARGET_PIXELS,
+        "target_extent_m": LANDSAT_TARGET_EXTENT_M,
+        "target_scale_m": LANDSAT_GRID_SCALE,
+        "context_ratio": LANDSAT_CONTEXT_RATIO,
+        "context_extent_m": LANDSAT_CONTEXT_EXTENT_M,
+        "goes_scale_m": GOES_NATIVE_SCALE_M,
+        "covariate_scale_m": LANDSAT_GRID_SCALE,
+        "paths": {
+            "target": f"{target_prefix}.tif",
+            "goes_context": f"{goes_prefix}.tif",
+            "covariates": f"{cov_prefix}.tif",
+        }
+    })
 
 # ==========================================
 # EXECUTION LOOP
