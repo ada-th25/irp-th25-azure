@@ -8,6 +8,10 @@ import gdown
 import ee
 import rasterio
 import time
+import threading
+import warnings
+import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pyproj import Transformer
 from google.cloud import storage
@@ -108,13 +112,11 @@ print(f"VIIRS branch pool after Aug-Sep-2020 filtering: {len(df_viirs)} detectio
 def gcs_exists(path_prefix):
     return any(name.startswith(path_prefix) for name in existing_blobs)
 
-# Geographic footprint of the Landsat patches actually processed this run -
-# used to spatially scope the decoupled VIIRS branch (see VIIRS_POOL_BUFFER_DEG).
+# Thread-safe tracker arrays for bounding box processing
 collected_patch_bboxes = []
+bbox_lock = threading.Lock()
 
 def compute_viirs_pool_bbox(patch_bboxes, buffer_deg=VIIRS_POOL_BUFFER_DEG):
-    """Union bounding box of all processed Landsat patches, expanded by
-    `buffer_deg` in each direction. Returns None if no patches were collected."""
     if not patch_bboxes:
         return None
     lon_mins, lat_mins, lon_maxs, lat_maxs = zip(*patch_bboxes)
@@ -126,12 +128,23 @@ def compute_viirs_pool_bbox(patch_bboxes, buffer_deg=VIIRS_POOL_BUFFER_DEG):
     ]
 
 def write_manifest(path, data):
-    """Small JSON sidecar so target/GOES-context/covariate files for a given
-    sample id can be matched up unambiguously at training time."""
     blob = bucket.blob(path)
     blob.upload_from_string(json.dumps(data, indent=2), content_type='application/json')
 
+EE_DISPATCH_WORKERS = 6
+QUEUE_CHECK_INTERVAL = 25
+_dispatch_count = 0
+_dispatch_count_lock = threading.Lock()
+
 def wait_for_queue_slot():
+    global _dispatch_count
+    with _dispatch_count_lock:
+        _dispatch_count += 1
+        should_check = (_dispatch_count % QUEUE_CHECK_INTERVAL == 0)
+
+    if not should_check:
+        return
+
     while True:
         tasks = ee.batch.Task.list()
         active_tasks = len([t for t in tasks if t.status()['state'] in ['RUNNING', 'READY', 'PENDING']])
@@ -141,7 +154,6 @@ def wait_for_queue_slot():
         time.sleep(45)
 
 def build_roi(center_lon, center_lat, extent_m):
-    """Square ROI of side `extent_m`, centred on (center_lon, center_lat)."""
     return ee.Geometry.Point([center_lon, center_lat]).buffer(extent_m / 2).bounds()
 
 def parse_zip_patch_metadata(file_bytes, filename):
@@ -151,7 +163,7 @@ def parse_zip_patch_metadata(file_bytes, filename):
     date_str = meta_match.group(1)
     formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
 
-    file_bytes.seek(0)  # Safety reset before reading
+    file_bytes.seek(0)
     with rasterio.MemoryFile(file_bytes) as memfile:
         with memfile.open() as src:
             bounds = src.bounds
@@ -392,6 +404,84 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
                     future.result()
                 except Exception as e:
                     print(f"    [!] Skipping VIIRS cluster {key}: {e}")
+
+# ==========================================
+# MASTER LOOP: LANDSAT BRANCH
+# ==========================================
+def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_sub=2,
+                       dispatch_workers=EE_DISPATCH_WORKERS):
+    print(f"\nProcessing Master Archive: {file_name}...")
+    tmp_path = os.path.join(tempfile.gettempdir(), file_name)
+
+    if not os.path.exists(tmp_path):
+        gdown.download(f"https://drive.google.com/uc?id={file_id}", tmp_path, quiet=False, use_cookies=False)
+
+    extract_dir = os.path.join(tempfile.gettempdir(), file_name.replace(".zip", "_extracted"))
+    os.makedirs(extract_dir, exist_ok=True)
+    work_items = []
+
+    try:
+        with zipfile.ZipFile(tmp_path, 'r') as parent:
+            parent.extractall(extract_dir)
+
+        nested_zips = [os.path.join(extract_dir, f) for f in os.listdir(extract_dir) 
+                       if f.endswith('.zip') and ('masks' in f.lower())]
+
+        sub_archive_count = 0
+        for n_path in nested_zips:
+            if sub_archive_count >= max_sub_archives:
+                print(f"[TEST MODE] Reached maximum sub-archives ({max_sub_archives}). Stopping.")
+                break
+
+            print(f" -> Accessing Sub-Archive: {os.path.basename(n_path)}")
+            sub_archive_count += 1
+
+            child_extract_dir = n_path.replace(".zip", "_contents")
+            with zipfile.ZipFile(n_path, 'r') as child:
+                child.extractall(child_extract_dir)
+
+            tiff_files = [f for f in os.listdir(child_extract_dir) 
+                          if f.lower().endswith('.tif') and 'intersection' in f.lower()]
+
+            attempts = 0
+            for member_name in tiff_files:
+                if attempts >= max_tiffs_per_sub:
+                    break
+                attempts += 1
+
+                member_path = os.path.join(child_extract_dir, member_name)
+                
+                with open(member_path, 'rb') as zf:
+                    fb = io.BytesIO(zf.read())
+                    meta = parse_zip_patch_metadata(fb, member_name)
+                    if not meta:
+                        continue
+
+                    lon_cen = meta["center"][0]
+                    if not (AMERICAS_LON_BOUNDS[0] <= lon_cen <= AMERICAS_LON_BOUNDS[1]):
+                        continue
+
+                    with bbox_lock:
+                        collected_patch_bboxes.append(meta["bbox"])
+                    work_items.append((meta, fb))
+
+            shutil.rmtree(child_extract_dir)
+
+    finally:
+        if os.path.exists(extract_dir):
+            shutil.rmtree(extract_dir)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    print(f"Dispatching {len(work_items)} Landsat samples with {dispatch_workers} workers...")
+    with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
+        futures = {executor.submit(process_landsat_sample, meta, fb): meta['id'] for meta, fb in work_items}
+        for future in as_completed(futures):
+            sample_id = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"    [!] Error processing {sample_id}: {e}")
 
 # ==========================================
 # EXECUTION LOOP
