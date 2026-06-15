@@ -53,8 +53,12 @@ LANDSAT_TARGET_EXTENT_M = LANDSAT_TARGET_PIXELS * LANDSAT_GRID_SCALE  # 7680m - 
 VIIRS_TARGET_PIXELS = 32
 VIIRS_TARGET_EXTENT_M = VIIRS_TARGET_PIXELS * VIIRS_GRID_SCALE  # 12000m
 
-LANDSAT_CONTEXT_RATIO = 4
-VIIRS_CONTEXT_RATIO = 10
+# Context ratios for GOES contextual windowing around the target patch. 1x means the context window is the same size as the target patch.
+# This is a hyperparameter that can be tuned to balance the amount of contextual information vs. the size of the input tensor.
+# This is because GOES has a much coarser resolution than Landsat or VIIRS, which means the GOES patch only covers a few pixels of the target patch.
+# Increasing the context ratio allows the model to see more of the surrounding area, which can help it learn better representations of the fire dynamics.
+LANDSAT_CONTEXT_RATIO = 1
+VIIRS_CONTEXT_RATIO = 1
 
 LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 30720m (~15x15 GOES px)
 VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M        # 120000m (~60x60 GOES px)
@@ -343,6 +347,51 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
             "covariates": f"{cov_prefix}.tif",
         }
     })
+
+    def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
+        if region_bbox is None:
+            print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
+            return
+
+        print(f"\nProcessing decoupled GOES -> VIIRS branch (region={region_bbox})...")
+        pool = df_viirs[
+            (df_viirs['longitude'] >= region_bbox[0]) & (df_viirs['longitude'] <= region_bbox[2]) &
+            (df_viirs['latitude'] >= region_bbox[1]) & (df_viirs['latitude'] <= region_bbox[3])
+        ]
+        print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
+
+        df, cell_deg = assign_viirs_cells(pool)
+        groups = list(df.groupby(['date_str', 'cell_lon', 'cell_lat']))
+        if len(groups) > max_clusters:
+            print(f"[TEST MODE] {len(groups)} candidate clusters found; capping at {max_clusters}.")
+            groups = groups[:max_clusters]
+
+        def _build_and_process(key, group):
+            date_str, cell_lon, cell_lat = key
+            center_lon = (cell_lon + 0.5) * cell_deg
+            center_lat = (cell_lat + 0.5) * cell_deg
+
+            best_row = group.sort_values('frp', ascending=False).iloc[0]
+            acq_time_str = f"{int(best_row['acq_time']):04d}"
+            rep_datetime = datetime.combine(
+                best_row['acq_date'].date(),
+                datetime.strptime(acq_time_str, "%H%M").time()
+            )
+            ee_viirs_date = ee.Date(rep_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+            cluster_id = f"{date_str}_{cell_lon}_{cell_lat}"
+            process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group)
+            return cluster_id
+
+        print(f"Dispatching {len(groups)} VIIRS clusters with {dispatch_workers} workers...")
+        with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
+            futures = {executor.submit(_build_and_process, key, group): key for key, group in groups}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"    [!] Skipping VIIRS cluster {key}: {e}")
 
 # ==========================================
 # EXECUTION LOOP
