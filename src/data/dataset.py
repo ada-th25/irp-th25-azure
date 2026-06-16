@@ -32,6 +32,8 @@ bucket = storage_client.bucket(BUCKET_NAME)
 print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix="processed_dataset/"))
 
+OUTPUT_PREFIX = "processed_dataset"
+
 # ==========================================
 # REGION / TIME CONSTANTS
 # ==========================================
@@ -179,47 +181,50 @@ def parse_zip_patch_metadata(file_bytes, filename):
         "id": filename.replace(".tif", "")
     }
 
+def get_utm_epsg(lon, lat):
+    """Return the EPSG code for the UTM zone containing (lon, lat)."""
+    zone = int((lon + 180) / 6) + 1
+    return f"EPSG:{32600 + zone}" if lat >= 0 else f"EPSG:{32700 + zone}"
+
 # ==========================================
 # FEATURE EXTRACTORS (GOES / VIIRS / COV)
 # ==========================================
-def fetch_goes_fire_features(roi, lon_cen, target_date_ee, target_scale):
-    """
-    Fetches GOES channels and computes the thermal difference matrix.
-    Applies Contextual Windowing (60km buffer) to extract regional shapes.
-    """
-    # Buffer out 30,000 meters in every direction from center
-    roi_center = roi.centroid()
-    context_roi = roi_center.buffer(30000).bounds()
-
+def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
+    """Returns a GOES MCMIPC image stack masked completely server-side 
+    if no scenes fall inside the temporal buffer window."""
     satellite = "NOAA/GOES/17/MCMIPC" if lon_cen < -100.0 else "NOAA/GOES/16/MCMIPC"
+    
     col = (ee.ImageCollection(satellite)
            .filterBounds(context_roi)
            .filterDate(target_date_ee.advance(-12, 'hour'), target_date_ee.advance(12, 'hour'))
            .select(['CMI_C07', 'CMI_C14']))
- 
-    if col.size().getInfo() == 0:
-        return None, None
- 
+
     target_millis = target_date_ee.millis()
-    closest = ee.Image(col.map(lambda img: img.set('time_diff', ee.Number(img.get('system:time_start')).subtract(target_millis).abs())).sort('time_diff').first())
     
-    if ee.Number(closest.get('time_diff')).getInfo() > GOES_TEMPORAL_GUARD_MIN * 60 * 1000:
-        return None, None
- 
-    # TFI calculation on the expanded region
-    tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
-    return closest.addBands(tfi).clip(context_roi), context_roi
+    col_with_time = col.map(lambda img: img.set(
+        'time_diff', ee.Number(img.get('system:time_start')).subtract(target_millis).abs()
+    ))
+    
+    closest = ee.Image(col_with_time.sort('time_diff').first())
+    tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI').toInt16()
+    final_stack = closest.select(['CMI_C07', 'CMI_C14']).addBands(tfi).clip(context_roi)
+
+    # Convert temporal constraints to structural pixel masks
+    max_diff_ms = GOES_TEMPORAL_GUARD_MIN * 60 * 1000
+    time_condition = ee.Number(closest.get('time_diff')).lte(max_diff_ms)
+    
+    return final_stack.updateMask(time_condition)
 
 # ==========================================
 # BRANCH A: GOES <-> LANDSAT
 # ==========================================
-def process_landsat_sample(meta, fb):
+def process_landsat_sample(meta, fb, mask_source="intersection"):
     sample_id = meta['id']
 
-    target_prefix = f"processed_dataset/landsat_pairs/targets/LANDSAT_{sample_id}"
-    goes_prefix = f"processed_dataset/landsat_pairs/goes_context/GOES_{sample_id}"
-    cov_prefix = f"processed_dataset/landsat_pairs/covariates/COV_{sample_id}"
-    manifest_path = f"processed_dataset/landsat_pairs/manifest/{sample_id}.json"
+    target_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/targets/LANDSAT_{sample_id}"
+    goes_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/goes_context/GOES_{sample_id}"
+    cov_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/covariates/COV_{sample_id}"
+    manifest_path = f"{OUTPUT_PREFIX}/landsat_pairs/manifest/{sample_id}.json"
 
     try:
         fb.seek(0)
@@ -235,13 +240,15 @@ def process_landsat_sample(meta, fb):
         return
 
     center_lon, center_lat = meta['center']
+    utm_crs = get_utm_epsg(center_lon, center_lat)
     context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M)
 
     if not gcs_exists(target_prefix):
         blob = bucket.blob(f"{target_prefix}.tif")
         fb.seek(0)
         blob.upload_from_file(fb, content_type='image/tiff')
-        print(f"    [SAVED] Landsat target: {sample_id} (n_active_pixels={n_active_pixels})")
+        print(f"    [SAVED] Landsat target: {sample_id} (n_active_pixels={n_active_pixels}, "
+              f"mask_source={mask_source})")
 
     if not gcs_exists(goes_prefix):
         goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['date']))
@@ -249,7 +256,7 @@ def process_landsat_sample(meta, fb):
         ee.batch.Export.image.toCloudStorage(
             image=goes_img, description=f"goes_ls_{sample_id}",
             bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
-            scale=GOES_NATIVE_SCALE_M, crs='EPSG:4326', fileFormat='GeoTIFF'
+            scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] GOES context export: {sample_id}")
 
@@ -258,15 +265,17 @@ def process_landsat_sample(meta, fb):
         ee.batch.Export.image.toCloudStorage(
             image=COVARIATE_STACK.clip(context_roi), description=f"cov_ls_{sample_id}",
             bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
-            scale=LANDSAT_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+            scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] Covariate export: {sample_id}")
 
     write_manifest(manifest_path, {
         "id": sample_id,
         "branch": "landsat",
+        "mask_source": mask_source,
         "date": meta['date'],
         "center": [center_lon, center_lat],
+        "crs": utm_crs,
         "n_active_pixels": n_active_pixels,
         "target_pixels": LANDSAT_TARGET_PIXELS,
         "target_extent_m": LANDSAT_TARGET_EXTENT_M,
