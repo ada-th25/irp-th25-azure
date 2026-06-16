@@ -360,50 +360,50 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         }
     })
 
-    def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
-        if region_bbox is None:
-            print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
-            return
+def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
+    if region_bbox is None:
+        print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
+        return
 
-        print(f"\nProcessing decoupled GOES -> VIIRS branch (region={region_bbox})...")
-        pool = df_viirs[
-            (df_viirs['longitude'] >= region_bbox[0]) & (df_viirs['longitude'] <= region_bbox[2]) &
-            (df_viirs['latitude'] >= region_bbox[1]) & (df_viirs['latitude'] <= region_bbox[3])
-        ]
-        print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
+    print(f"\nProcessing decoupled GOES -> VIIRS branch (region={region_bbox})...")
+    pool = df_viirs[
+        (df_viirs['longitude'] >= region_bbox[0]) & (df_viirs['longitude'] <= region_bbox[2]) &
+        (df_viirs['latitude'] >= region_bbox[1]) & (df_viirs['latitude'] <= region_bbox[3])
+    ]
+    print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
 
-        df, cell_deg = assign_viirs_cells(pool)
-        groups = list(df.groupby(['date_str', 'cell_lon', 'cell_lat']))
-        if len(groups) > max_clusters:
-            print(f"[TEST MODE] {len(groups)} candidate clusters found; capping at {max_clusters}.")
-            groups = groups[:max_clusters]
+    df, cell_deg = assign_viirs_cells(pool)
+    groups = list(df.groupby(['date_str', 'cell_lon', 'cell_lat']))
+    if len(groups) > max_clusters:
+        print(f"[TEST MODE] {len(groups)} candidate clusters found; capping at {max_clusters}.")
+        groups = groups[:max_clusters]
 
-        def _build_and_process(key, group):
-            date_str, cell_lon, cell_lat = key
-            center_lon = (cell_lon + 0.5) * cell_deg
-            center_lat = (cell_lat + 0.5) * cell_deg
+    def _build_and_process(key, group):
+        date_str, cell_lon, cell_lat = key
+        center_lon = (cell_lon + 0.5) * cell_deg
+        center_lat = (cell_lat + 0.5) * cell_deg
 
-            best_row = group.sort_values('frp', ascending=False).iloc[0]
-            acq_time_str = f"{int(best_row['acq_time']):04d}"
-            rep_datetime = datetime.combine(
-                best_row['acq_date'].date(),
-                datetime.strptime(acq_time_str, "%H%M").time()
-            )
-            ee_viirs_date = ee.Date(rep_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        best_row = group.sort_values('frp', ascending=False).iloc[0]
+        acq_time_str = f"{int(best_row['acq_time']):04d}"
+        rep_datetime = datetime.combine(
+            best_row['acq_date'].date(),
+            datetime.strptime(acq_time_str, "%H%M").time()
+        )
+        ee_viirs_date = ee.Date(rep_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
-            cluster_id = f"{date_str}_{cell_lon}_{cell_lat}"
-            process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group)
-            return cluster_id
+        cluster_id = f"{date_str}_{cell_lon}_{cell_lat}"
+        process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group)
+        return cluster_id
 
-        print(f"Dispatching {len(groups)} VIIRS clusters with {dispatch_workers} workers...")
-        with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
-            futures = {executor.submit(_build_and_process, key, group): key for key, group in groups}
-            for future in as_completed(futures):
-                key = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"    [!] Skipping VIIRS cluster {key}: {e}")
+    print(f"Dispatching {len(groups)} VIIRS clusters with {dispatch_workers} workers...")
+    with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
+        futures = {executor.submit(_build_and_process, key, group): key for key, group in groups}
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"    [!] Skipping VIIRS cluster {key}: {e}")
 
 # ==========================================
 # MASTER LOOP: LANDSAT BRANCH
@@ -487,4 +487,73 @@ def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_su
 # EXECUTION LOOP
 # ==========================================
 if __name__ == "__main__":
-    urls = {"North_America1.zip": "1BXRGldTdGGNeWDOFqNnmiNPuPQjweB2M"}
+    import sys
+
+    urls = {
+        "North_America1.zip": "1BXRGldTdGGNeWDOFqNnmiNPuPQjweB2M",
+        "North_America2.zip": "1zW_pEIggJ5Li7uQX9XKMfHkcgL3kiUoi",
+        "South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
+    }
+
+    MAX_SUB_ARCHIVES = 10_000
+    MAX_TIFFS_PER_SUB = 10_000
+    MAX_VIIRS_CLUSTERS = 3000
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else "landsat"
+
+    if mode == "landsat":
+        print("\n=== MODE: landsat (Branch A only) ===")
+        for name, fid in urls.items():
+            try:
+                process_public_zip(
+                    fid,
+                    name,
+                    max_sub_archives=MAX_SUB_ARCHIVES,
+                    max_tiffs_per_sub=MAX_TIFFS_PER_SUB
+                )
+            except Exception as e:
+                print(f"Fatal Interrupt processing {name}: {e}")
+
+        n_this_run = len(collected_patch_bboxes)
+        n_total_manifests = sum(
+            1 for name in existing_blobs
+            if name.startswith("processed_dataset/landsat_pairs/manifest/") and name.endswith(".json")
+        )
+        print(f"\n[SUMMARY] Landsat patches processed this run: {n_this_run}")
+        print(f"[SUMMARY] Total Landsat manifests in GCS (incl. prior runs): {n_total_manifests}")
+        print(f"[SUMMARY] region_bbox for VIIRS branch: {compute_viirs_pool_bbox(collected_patch_bboxes)}")
+        print("\nNext step: run with `python3 dataset_pipeline.py viirs` "
+              "(adjust MAX_VIIRS_CLUSTERS first if desired).")
+
+    elif mode == "viirs":
+        print("\n=== MODE: viirs (Branch B only) ===")
+
+        bboxes = []
+        for name in existing_blobs:
+            if name.startswith("processed_dataset/landsat_pairs/manifest/") and name.endswith(".json"):
+                try:
+                    data = json.loads(bucket.blob(name).download_as_text())
+                    center = data.get("center")
+                    extent_m = data.get("context_extent_m")
+                    if center and extent_m:
+                        half_deg = (extent_m / 2) / 111320.0  # approx degrees
+                        lon_c, lat_c = center
+                        bboxes.append([lon_c - half_deg, lat_c - half_deg, lon_c + half_deg, lat_c + half_deg])
+                except Exception:
+                    continue
+
+        if not bboxes:
+            print("No usable Landsat manifests found in GCS; "
+                  "falling back to a wide Americas bbox.")
+            region_bbox = [AMERICAS_LON_BOUNDS[0], -56.0, AMERICAS_LON_BOUNDS[1], 75.0]
+        else:
+            region_bbox = compute_viirs_pool_bbox(bboxes)
+            print(f"Derived region_bbox from {len(bboxes)} existing Landsat manifests: {region_bbox}")
+
+        try:
+            run_viirs_branch(region_bbox=region_bbox, max_clusters=MAX_VIIRS_CLUSTERS)
+        except Exception as e:
+            print(f"Fatal Interrupt processing VIIRS branch: {e}")
+
+    else:
+        print(f"Unknown mode '{mode}'. Use 'landsat' or 'viirs'.")
