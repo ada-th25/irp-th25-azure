@@ -495,23 +495,158 @@ def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_su
 # ==========================================
 # EXECUTION LOOP
 # ==========================================
+def process_flat_zip(file_id, file_name, mask_source, max_tiffs=10_000,
+                      dispatch_workers=EE_DISPATCH_WORKERS):
+    print(f"\nProcessing Flat Archive: {file_name} (mask_source={mask_source})...")
+    tmp_path = os.path.join(tempfile.gettempdir(), file_name)
+
+    if not os.path.exists(tmp_path):
+        gdown.download(f"https://drive.google.com/uc?id={file_id}", tmp_path, quiet=False, use_cookies=False)
+
+    extract_dir = os.path.join(tempfile.gettempdir(), file_name.replace(".zip", "_extracted"))
+    os.makedirs(extract_dir, exist_ok=True)
+    work_items = []
+
+    try:
+        with zipfile.ZipFile(tmp_path, 'r') as parent:
+            parent.extractall(extract_dir)
+
+        tiff_paths = glob.glob(os.path.join(extract_dir, "**", "*.tif"), recursive=True)
+        print(f"Found {len(tiff_paths)} tif patches in {file_name}")
+
+        attempts = 0
+        for member_path in tiff_paths:
+            if attempts >= max_tiffs:
+                print(f"[TEST MODE] Reached maximum tiffs ({max_tiffs}). Stopping.")
+                break
+            attempts += 1
+
+            member_name = os.path.basename(member_path)
+            with open(member_path, 'rb') as zf:
+                fb = io.BytesIO(zf.read())
+                meta = parse_zip_patch_metadata(fb, member_name)
+                if not meta:
+                    continue
+
+                lon_cen = meta["center"][0]
+                if not (AMERICAS_LON_BOUNDS[0] <= lon_cen <= AMERICAS_LON_BOUNDS[1]):
+                    continue
+
+                with bbox_lock:
+                    collected_patch_bboxes.append(meta["bbox"])
+                work_items.append((meta, fb))
+
+    finally:
+        if os.path.exists(extract_dir):
+            shutil.rmtree(extract_dir)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    print(f"Dispatching {len(work_items)} samples from {file_name} with {dispatch_workers} workers...")
+    with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
+        futures = {
+            executor.submit(process_landsat_sample, meta, fb, mask_source): meta['id']
+            for meta, fb in work_items
+        }
+        for future in as_completed(futures):
+            sample_id = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"    [!] Error processing {sample_id}: {e}")
+
 if __name__ == "__main__":
     import sys
 
     urls = {
         "North_America1.zip": "1BXRGldTdGGNeWDOFqNnmiNPuPQjweB2M",
-        "North_America2.zip": "1zW_pEIggJ5Li7uQX9XKMfHkcgL3kiUoi",
-        "South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
+        #"North_America2.zip": "1zW_pEIggJ5Li7uQX9XKMfHkcgL3kiUoi",
+        #"South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
     }
 
-    MAX_SUB_ARCHIVES = 10_000
-    MAX_TIFFS_PER_SUB = 10_000
-    MAX_VIIRS_CLUSTERS = 3000
+    MANUAL_ANNOTATIONS_FILE_ID = "1LdsX-rH5hy_82jfc1akO8p4n0_N8lRgf"
+    MANUAL_ANNOTATIONS_FILE_NAME = "manual_annotations_patches.zip"
 
-    mode = sys.argv[1] if len(sys.argv) > 1 else "landsat"
+    MAX_SUB_ARCHIVES = 10#10_000     # effectively unbounded - each zip has <1000 sub-archives
+    MAX_TIFFS_PER_SUB = 5#10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
 
-    if mode == "landsat":
+    MAX_VIIRS_CLUSTERS = 5#3000
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
+
+    if mode == "test_all":
+        print("\n=== MODE: test_all (Sequential validation of Landsat + VIIRS Branches) ===")
+        
+        # RUN LANDSAT BRANCH
+        print("\n--- Step 1: Running Landsat/GOES Branch ---")
+        try:
+            process_flat_zip(
+                MANUAL_ANNOTATIONS_FILE_ID,
+                MANUAL_ANNOTATIONS_FILE_NAME,
+                mask_source="manual_v1",
+                max_tiffs=MAX_TIFFS_PER_SUB
+            )
+        except Exception as e:
+            print(f"Fatal Interrupt processing {MANUAL_ANNOTATIONS_FILE_NAME}: {e}")
+    
+        for name, fid in urls.items():
+            try:
+                process_public_zip(
+                    fid,
+                    name,
+                    max_sub_archives=MAX_SUB_ARCHIVES,
+                    max_tiffs_per_sub=MAX_TIFFS_PER_SUB
+                )
+            except Exception as e:
+                print(f"Fatal Interrupt processing {name}: {e}")
+
+        # COMPUTE SPATIAL BOUNDING BOX
+        n_this_run = len(collected_patch_bboxes)
+        print(f"\n[SUMMARY] Landsat patches processed this test run: {n_this_run}")
+        
+        if n_this_run == 0:
+            print("\n[WARNING] No Landsat patches collected this run. Pulling historic manifests from GCS...")
+            bboxes = []
+            for name in existing_blobs:
+                if name.startswith(f"{OUTPUT_PREFIX}/landsat_pairs/manifest/") and name.endswith(".json"):
+                    try:
+                        data = json.loads(bucket.blob(name).download_as_text())
+                        center = data.get("center")
+                        extent_m = data.get("context_extent_m")
+                        if center and extent_m:
+                            half_deg = (extent_m / 2) / 111320.0
+                            lon_c, lat_c = center
+                            bboxes.append([lon_c - half_deg, lat_c - half_deg, lon_c + half_deg, lat_c + half_deg])
+                    except Exception:
+                        continue
+            region_bbox = compute_viirs_pool_bbox(bboxes) if bboxes else [AMERICAS_LON_BOUNDS[0], -56.0, AMERICAS_LON_BOUNDS[1], 75.0]
+        else:
+            region_bbox = compute_viirs_pool_bbox(collected_patch_bboxes)
+            
+        print(f"Target region_bbox calculated for testing VIIRS branch: {region_bbox}")
+
+        # RUN VIIRS BRANCH
+        print("\n--- Step 2: Running VIIRS/GOES Branch ---")
+        try:
+            run_viirs_branch(region_bbox=region_bbox, max_clusters=MAX_VIIRS_CLUSTERS)
+        except Exception as e:
+            print(f"Fatal Interrupt processing VIIRS branch: {e}")
+            
+        print("\n=== [TEST COMPLETE] Component export commands dispatched to Earth Engine. ===")
+
+    elif mode == "landsat":
         print("\n=== MODE: landsat (Branch A only) ===")
+        
+        try:
+            process_flat_zip(
+                MANUAL_ANNOTATIONS_FILE_ID,
+                MANUAL_ANNOTATIONS_FILE_NAME,
+                mask_source="manual_v1",
+                max_tiffs=MAX_TIFFS_PER_SUB
+            )
+        except Exception as e:
+            print(f"Fatal Interrupt processing {MANUAL_ANNOTATIONS_FILE_NAME}: {e}")
+    
         for name, fid in urls.items():
             try:
                 process_public_zip(
@@ -526,20 +661,17 @@ if __name__ == "__main__":
         n_this_run = len(collected_patch_bboxes)
         n_total_manifests = sum(
             1 for name in existing_blobs
-            if name.startswith("processed_dataset/landsat_pairs/manifest/") and name.endswith(".json")
+            if name.startswith(f"{OUTPUT_PREFIX}/landsat_pairs/manifest/") and name.endswith(".json")
         )
         print(f"\n[SUMMARY] Landsat patches processed this run: {n_this_run}")
         print(f"[SUMMARY] Total Landsat manifests in GCS (incl. prior runs): {n_total_manifests}")
         print(f"[SUMMARY] region_bbox for VIIRS branch: {compute_viirs_pool_bbox(collected_patch_bboxes)}")
-        print("\nNext step: run with `python3 dataset_pipeline.py viirs` "
-              "(adjust MAX_VIIRS_CLUSTERS first if desired).")
 
     elif mode == "viirs":
         print("\n=== MODE: viirs (Branch B only) ===")
-
         bboxes = []
         for name in existing_blobs:
-            if name.startswith("processed_dataset/landsat_pairs/manifest/") and name.endswith(".json"):
+            if name.startswith(f"{OUTPUT_PREFIX}/landsat_pairs/manifest/") and name.endswith(".json"):
                 try:
                     data = json.loads(bucket.blob(name).download_as_text())
                     center = data.get("center")

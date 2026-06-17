@@ -23,7 +23,7 @@ This file contains references and AI disclosures specific to the codebase in thi
 
 * **Tool:** Google Gemini (3.5)
     * **Date Used:** 16/06/2026
-    * **Scope:** Generated the core loop (`process_public_zip`) for unzipping and accessing the Landsat files in `src/data/dataset.py`. The loop also processed and filters for `MIN_ACTIVE_PIXELS`.
+    * **Scope:** Generated the core loop (`process_public_zip`, `process_flat_zip`) for unzipping and accessing the Landsat files in `src/data/dataset.py`. The loop also processed and filters for `MIN_ACTIVE_PIXELS`.
     * **Prompt:** (pasting existing code, including link to the Pereira et al. dataset) "Create a function that unzips and processes the Landsat master archive containing raw fire scenes, filter out data based on the minimum active pixels, extract spatial metadata and checks their bounding boxes. Use Multithreaded Task Dispatching for faster processing."
     * **Human Modification:** Modified so that it only locates the files contianing `"intersection"`.
 
