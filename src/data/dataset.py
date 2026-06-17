@@ -81,18 +81,27 @@ COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
 # ==========================================
 # NASA VIIRS ARCHIVE: LOAD + FILTER
 # ==========================================
-VIIRS_CSV_PATH = "raw-viirs/fire_archive_SV-C2_762484.csv"
+VIIRS_CSV_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"
+VIIRS_CSV_GCS_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"  # path inside the bucket
 
-if not os.path.exists(VIIRS_CSV_PATH):
-    raise FileNotFoundError(f"Missing local NASA catalog asset at: {VIIRS_CSV_PATH}.")
-
-print("Loading NASA VIIRS Archive CSV into memory...")
-df_viirs = pd.read_csv(VIIRS_CSV_PATH)
+print(f"Downloading VIIRS archive CSV from GCS: gs://{BUCKET_NAME}/{VIIRS_CSV_GCS_PATH} ...")
+viirs_blob = bucket.blob(VIIRS_CSV_GCS_PATH)
+if not viirs_blob.exists():
+    raise FileNotFoundError(
+        f"VIIRS archive not found in GCS at gs://{BUCKET_NAME}/{VIIRS_CSV_GCS_PATH}. "
+        f"Upload it once with: gsutil cp {VIIRS_CSV_PATH} gs://{BUCKET_NAME}/{VIIRS_CSV_GCS_PATH}"
+    )
+df_viirs = pd.read_csv(io.BytesIO(viirs_blob.download_as_bytes()))
 df_viirs.columns = df_viirs.columns.str.strip()
 
 if 'acq_date' not in df_viirs.columns:
     raise KeyError("Missing required column 'acq_date' in source file.")
 df_viirs['acq_date'] = pd.to_datetime(df_viirs['acq_date'])
+df_viirs['acq_time_str'] = df_viirs['acq_time'].astype(int).apply(lambda t: f"{t:04d}")
+df_viirs['acq_datetime'] = pd.to_datetime(
+    df_viirs['acq_date'].dt.strftime('%Y-%m-%d') + ' ' + df_viirs['acq_time_str'],
+    format='%Y-%m-%d %H%M'
+)
 print(f"Loaded {len(df_viirs)} raw archive detections.")
 
 if 'confidence' in df_viirs.columns:
@@ -299,7 +308,8 @@ def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
     cell_deg = cell_extent_m / 111320.0
     df['cell_lon'] = (df['longitude'] // cell_deg).astype(int)
     df['cell_lat'] = (df['latitude'] // cell_deg).astype(int)
-    df['date_str'] = df['acq_date'].dt.strftime('%Y%m%d')
+    VIIRS_TEMPORAL_WINDOW_MIN = 30
+    df['overpass_window'] = df['acq_datetime'].dt.floor(f'{VIIRS_TEMPORAL_WINDOW_MIN}min')
     return df, cell_deg
 
 def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group_df):
@@ -382,25 +392,29 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
     print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
 
     df, cell_deg = assign_viirs_cells(pool)
-    groups = list(df.groupby(['date_str', 'cell_lon', 'cell_lat']))
+    groups = list(df.groupby(['overpass_window', 'cell_lon', 'cell_lat']))
     if len(groups) > max_clusters:
         print(f"[TEST MODE] {len(groups)} candidate clusters found; capping at {max_clusters}.")
         groups = groups[:max_clusters]
 
+    VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
+
     def _build_and_process(key, group):
-        date_str, cell_lon, cell_lat = key
+        overpass_window, cell_lon, cell_lat = key
+    
+        # Compute geographic centre from cell indices
         center_lon = (cell_lon + 0.5) * cell_deg
         center_lat = (cell_lat + 0.5) * cell_deg
-
-        best_row = group.sort_values('frp', ascending=False).iloc[0]
-        acq_time_str = f"{int(best_row['acq_time']):04d}"
-        rep_datetime = datetime.combine(
-            best_row['acq_date'].date(),
-            datetime.strptime(acq_time_str, "%H%M").time()
-        )
-        ee_viirs_date = ee.Date(rep_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"))
-
-        cluster_id = f"{date_str}_{cell_lon}_{cell_lat}"
+    
+        # Drop detections more than 15 min from the peak-FRP detection's time
+        peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
+        time_spread = (group['acq_datetime'] - peak_time).abs()
+        group = group[time_spread <= pd.Timedelta(minutes=VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
+    
+        # Representative datetime from peak-FRP detection
+        ee_viirs_date = ee.Date(peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    
+        cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
         process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group)
         return cluster_id
 

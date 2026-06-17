@@ -6,7 +6,7 @@ This file contains references and AI disclosures specific to the codebase in thi
 
 * **Tool:** Anthropic Claude (Sonnet 4.6)
     * **Date Used:** 10/06/2026
-    * **Scope:** Generated the initial test pipeline code in data processing pipeline in `src/data/dataset.py`. Also generated code to be used for testing/visualising the initial test pipeline in `notebooks/exploratory-notebook.ipynb`. NOTE: This is not used in the final pipeline. This is purely for test purposes only.
+    * **Scope:** Generated the initial test pipeline code in data processing pipeline in `src/data/dataset.py`. Also generated code to be used for testing/visualising the initial test pipeline in `notebooks/exploratory-notebook.ipynb`. NOTE: This is not used in the final pipeline. This is purely for test/exploratory purposes only.
     * **Prompt:** (with information on Pereira et al. dataset pasted) "Create a function that fetches GOES data corresponding to the Pereira et al. Landsat dataset. And generate a code to copy and paste to an exploratory ipynb file to test and check the data that's been stored in GCP bucket."
 
 * **Tool:** Google Gemini (3.5)
@@ -37,3 +37,15 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generated `process_landsat_sample` function in `src/data/dataset.py`. This generates unique paths for each files, checks for existing GCS blob and skips if it exists. The function extracts the center longitude and latitude from the sample's metadata and maps them to the appropriate local UTM CRS and create a ROI boundng box. Then uses the information to extract the corresponding GOES and covariates.
     * **Prompt:** (pasting existing code) "Create a function that processes the Landsat data, gets a 7680m ROI, and gets the corresponding GOES and covariates with same ROI"
     * **Human Modification:** Add manifest writing.
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 16/06/2026
+    * **Scope:** Generated the code for processing VIIRS data and acquiring/processing the corresponding GOES and covariate data (`process_viirs_cluster`, `run_viirs_branch`). This includes determining the projections, ROI, rasterisation of VIIRS data, and extracting the GOES and covariates data, and saving them to GCP.
+    * **Prompt:** (pasting existing code, including the Landsat/GOES/covairates acquisition and processing branch) "Generate code similar to the Landsat branch, but for VIIRS. The VIIRS data are in csv and needs to be rasterised. Ensure the physical extent covered are consistent with the context extent ratio, and consistent between the input datasets."
+    * **Human Modification:** Add manifest writing. Also add code after loading VIIRS data to parse to datetime, and define time window for grouping.
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 17/06/2026
+    * **Scope:** Generated data exploration code in `notebooks/explore-dataset.ipynb`, where it checks for number of active pixel distributions and the number of files contained in Pereira et al. dataset. It also counts the number of raster data we get from the VIIRS csv data, and the number of active pixels in the rasterised VIIRS.
+    * **Prompt:** (pasting existing data pipeline for reference) "Create a code to paste to an ipynb notebook to explore the distribution of the number of active pixels, and the number of masks contained in each files. Also, create code to count how much raster data we get, and the number of active pixels from the VIIRS data."
+    * **Human Modification:** Add the gdrive ID for the relevant folders.
