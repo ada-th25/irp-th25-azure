@@ -72,3 +72,16 @@
     - Edit the project plan to highlight the novel research, and highlight the research motivation in context of insurance.
 - **Work Plan Before Next Meeting:**
     - Develop a pipline to extract and process the data needed via Google Cloud Platform.
+
+### Meeting with Main Supervisor (17 Jun 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Discussed the progress on the data pipeline development.
+    - Raised concerns about the sparsity of the data and the time it takes for the pipeline to process.
+- **Feedback:**
+    - Check how much files the Preira et al. dataset contains.
+    - Filter the Landsat mask data to keep images with >=10 active pixels.
+    - Check how to change the machine on GCP for faster processing.
+- **Work Plan Before Next Meeting:**
+    - Create a exploratory notebook exploring the sparsity of the data.
+    - Check which machine to use for running the pipeline.
