@@ -212,7 +212,7 @@ def get_utm_epsg(lon, lat):
 # FEATURE EXTRACTORS (GOES / VIIRS / COV)
 # ==========================================
 def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
-    # 1. Merge collections natively to cover all of the Americas without string casting
+    #  Merge collections natively to cover all of the Americas without string casting
     col = (ee.ImageCollection("NOAA/GOES/16/MCMIPC")
            .merge(ee.ImageCollection("NOAA/GOES/17/MCMIPC"))
            .filterBounds(context_roi)
@@ -225,7 +225,7 @@ def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
         'time_diff', ee.Number(img.get('system:time_start')).subtract(target_millis).abs()
     ))
 
-    # 2. Inject a dummy image to prevent Eager Evaluation null crashes on empty collections
+    # Inject a dummy image to prevent Eager Evaluation null crashes on empty collections
     dummy_img = (ee.Image.constant([0, 0])
                  .rename(['CMI_C07', 'CMI_C14'])
                  .set('time_diff', ee.Number(9999999999)))
@@ -247,7 +247,7 @@ def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
 
     time_condition = ee.Number(closest.get('time_diff')).lte(max_diff_ms)
     
-    # 3. Absolute Type Safety: Cast the final output to Int16 to guarantee TIFF compliance
+    # Absolute Type Safety: Cast the final output to Int16 to guarantee TIFF compliance
     result = ee.Image(ee.Algorithms.If(
         time_condition,
         final_stack,
@@ -263,7 +263,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
     sample_id = meta['id']
 
     target_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/targets/LANDSAT_{sample_id}"
-    goes_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/goes_context/GOES_{sample_id}"
+    goes_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/goes_input/GOES_{sample_id}"
     cov_prefix = f"{OUTPUT_PREFIX}/landsat_pairs/covariates/COV_{sample_id}"
     manifest_path = f"{OUTPUT_PREFIX}/landsat_pairs/manifest/{sample_id}.json"
 
@@ -282,7 +282,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
 
     center_lon, center_lat = meta['center']
     utm_crs = get_utm_epsg(center_lon, center_lat)
-    context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M)
+    context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M, utm_crs)
 
     if not gcs_exists(target_prefix):
         blob = bucket.blob(f"{target_prefix}.tif")
@@ -291,7 +291,8 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
         print(f"    [SAVED] Landsat target: {sample_id} (n_active_pixels={n_active_pixels}, "
               f"mask_source={mask_source})")
 
-    if not gcs_exists(goes_prefix):
+    goes_dispatched = gcs_exists(goes_prefix)  # already in bucket from a prior run
+    if not goes_dispatched:
         goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['date']))
         wait_for_queue_slot()
         ee.batch.Export.image.toCloudStorage(
@@ -300,6 +301,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
             scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] GOES context export: {sample_id}")
+        goes_dispatched = True
 
     if not gcs_exists(cov_prefix):
         wait_for_queue_slot()
@@ -325,9 +327,10 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
         "context_extent_m": LANDSAT_CONTEXT_EXTENT_M,
         "goes_scale_m": GOES_NATIVE_SCALE_M,
         "covariate_scale_m": LANDSAT_GRID_SCALE,
+        "goes_dispatched": goes_dispatched,
         "paths": {
             "target": f"{target_prefix}.tif",
-            "goes_context": f"{goes_prefix}.tif",
+            "goes_input": f"{goes_prefix}.tif",
             "covariates": f"{cov_prefix}.tif",
         }
     })
@@ -345,13 +348,14 @@ def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
     return df, cell_deg
 
 def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group_df):
-    target_prefix = f"processed_dataset/viirs_pairs/targets/VIIRS_{cluster_id}"
-    goes_prefix = f"processed_dataset/viirs_pairs/goes_context/GOES_{cluster_id}"
-    cov_prefix = f"processed_dataset/viirs_pairs/covariates/COV_{cluster_id}"
-    manifest_path = f"processed_dataset/viirs_pairs/manifest/{cluster_id}.json"
+    target_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}"
+    goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
+    cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
+    manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
 
-    target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M)
-    context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M)
+    utm_crs = get_utm_epsg(center_lon, center_lat)
+    target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M, utm_crs)
+    context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
 
     if not gcs_exists(target_prefix):
         features = [
@@ -360,33 +364,35 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         ]
         viirs_img = (ee.FeatureCollection(features)
                      .reduceToImage(properties=['frp'], reducer=ee.Reducer.max())
+                     .clip(target_roi)
                      .unmask(0)
-                     .rename('VIIRS_FRP')
-                     .clip(target_roi))
+                     .rename('VIIRS_FRP'))
         wait_for_queue_slot()
         ee.batch.Export.image.toCloudStorage(
             image=viirs_img, description=f"viirs_frp_{cluster_id}",
             bucket=BUCKET_NAME, fileNamePrefix=target_prefix, region=target_roi,
-            scale=VIIRS_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+            scale=VIIRS_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")
 
-    if not gcs_exists(goes_prefix):
+    goes_dispatched = gcs_exists(goes_prefix)  # already in bucket from a prior run
+    if not goes_dispatched:
         goes_img = fetch_goes_fire_features(context_roi, center_lon, ee_viirs_date)
         wait_for_queue_slot()
         ee.batch.Export.image.toCloudStorage(
             image=goes_img, description=f"goes_vx_{cluster_id}",
             bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
-            scale=GOES_NATIVE_SCALE_M, crs='EPSG:4326', fileFormat='GeoTIFF'
+            scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] GOES context export: {cluster_id}")
+        goes_dispatched = True
 
     if not gcs_exists(cov_prefix):
         wait_for_queue_slot()
         ee.batch.Export.image.toCloudStorage(
             image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
             bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
-            scale=VIIRS_GRID_SCALE, crs='EPSG:4326', fileFormat='GeoTIFF'
+            scale=VIIRS_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] Covariate export: {cluster_id}")
 
@@ -395,7 +401,8 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         "branch": "viirs",
         "date": group_df['acq_date'].iloc[0].strftime("%Y-%m-%d"),
         "center": [center_lon, center_lat],
-        "target_pixels": VIIRS_TARGET_PIXELS,
+        "crs": utm_crs,
+        "target_pixels_nominal": VIIRS_TARGET_PIXELS,  # 7500m/375m=20 exactly
         "target_extent_m": VIIRS_TARGET_EXTENT_M,
         "target_scale_m": VIIRS_GRID_SCALE,
         "context_ratio": VIIRS_CONTEXT_RATIO,
@@ -404,9 +411,10 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         "covariate_scale_m": VIIRS_GRID_SCALE,
         "n_detections": int(len(group_df)),
         "max_frp": float(group_df['frp'].max()),
+        "goes_dispatched": goes_dispatched,
         "paths": {
             "target": f"{target_prefix}.tif",
-            "goes_context": f"{goes_prefix}.tif",
+            "goes_input": f"{goes_prefix}.tif",
             "covariates": f"{cov_prefix}.tif",
         }
     })
@@ -430,7 +438,7 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
         groups = groups[:max_clusters]
 
     VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
-
+    
     def _build_and_process(key, group):
         overpass_window, cell_lon, cell_lat = key
     
@@ -491,36 +499,42 @@ def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_su
             print(f" -> Accessing Sub-Archive: {os.path.basename(n_path)}")
             sub_archive_count += 1
 
-            child_extract_dir = n_path.replace(".zip", "_contents")
-            with zipfile.ZipFile(n_path, 'r') as child:
-                child.extractall(child_extract_dir)
-
-            tiff_files = [f for f in os.listdir(child_extract_dir) 
-                          if f.lower().endswith('.tif') and 'intersection' in f.lower()]
-
             attempts = 0
-            for member_name in tiff_files:
-                if attempts >= max_tiffs_per_sub:
-                    break
-                attempts += 1
+            with zipfile.ZipFile(n_path, 'r') as child:
+                for member_name in child.namelist():
+                    if member_name.lower().endswith('.tif') and 'intersection' in member_name.lower():
+                        if attempts >= max_tiffs_per_sub:
+                            break
+                        
+                        # Stream the file directly from the zip bytes into rasterio memory
+                        with child.open(member_name) as member_file:
+                            file_bytes = io.BytesIO(member_file.read())
+                            
+                            with rasterio.MemoryFile(file_bytes) as memfile:
+                                with memfile.open() as src:
+                                    mask = src.read(1)
+                                    n_active_pixels = int(np.sum(mask == 1))
+                        
+                        # Instantly drop sparse patches from the memory pipeline
+                        if n_active_pixels < MIN_ACTIVE_PIXELS:
+                            print(f"    [SKIP landsat] Only {n_active_pixels} active fire pixel(s) (< {MIN_ACTIVE_PIXELS}) for {member_name}")
+                            continue
 
-                member_path = os.path.join(child_extract_dir, member_name)
-                
-                with open(member_path, 'rb') as zf:
-                    fb = io.BytesIO(zf.read())
-                    meta = parse_zip_patch_metadata(fb, member_name)
-                    if not meta:
-                        continue
+                        # Reuse the stream to parse metadata and append to queue
+                        meta = parse_zip_patch_metadata(file_bytes, member_name)
+                        if not meta:
+                            continue
 
-                    lon_cen = meta["center"][0]
-                    if not (AMERICAS_LON_BOUNDS[0] <= lon_cen <= AMERICAS_LON_BOUNDS[1]):
-                        continue
+                        lon_cen = meta["center"][0]
+                        if not (AMERICAS_LON_BOUNDS[0] <= lon_cen <= AMERICAS_LON_BOUNDS[1]):
+                            continue
 
-                    with bbox_lock:
-                        collected_patch_bboxes.append(meta["bbox"])
-                    work_items.append((meta, fb))
-
-            shutil.rmtree(child_extract_dir)
+                        with bbox_lock:
+                            collected_patch_bboxes.append(meta["bbox"])
+                        
+                        # Store file bytes to avoid reading from zip again inside the executor
+                        work_items.append((meta, file_bytes))
+                        attempts += 1
 
     finally:
         if os.path.exists(extract_dir):
@@ -602,21 +616,21 @@ def process_flat_zip(file_id, file_name, mask_source, max_tiffs=10_000,
                 print(f"    [!] Error processing {sample_id}: {e}")
 
 if __name__ == "__main__":
-    import sys
 
     urls = {
         "North_America1.zip": "1BXRGldTdGGNeWDOFqNnmiNPuPQjweB2M",
-        #"North_America2.zip": "1zW_pEIggJ5Li7uQX9XKMfHkcgL3kiUoi",
-        #"South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
+        "North_America2.zip": "1zW_pEIggJ5Li7uQX9XKMfHkcgL3kiUoi",
+        "South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
     }
 
+    # Manually-annotated validation patches (Pereira et al.)
     MANUAL_ANNOTATIONS_FILE_ID = "1LdsX-rH5hy_82jfc1akO8p4n0_N8lRgf"
     MANUAL_ANNOTATIONS_FILE_NAME = "manual_annotations_patches.zip"
 
-    MAX_SUB_ARCHIVES = 10#10_000     # effectively unbounded - each zip has <1000 sub-archives
-    MAX_TIFFS_PER_SUB = 5#10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
+    MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
+    MAX_TIFFS_PER_SUB = 10_000
 
-    MAX_VIIRS_CLUSTERS = 5#3000
+    MAX_VIIRS_CLUSTERS = 3000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 
@@ -715,6 +729,7 @@ if __name__ == "__main__":
 
     elif mode == "viirs":
         print("\n=== MODE: viirs (Branch B only) ===")
+
         bboxes = []
         for name in existing_blobs:
             if name.startswith(f"{OUTPUT_PREFIX}/landsat_pairs/manifest/") and name.endswith(".json"):
