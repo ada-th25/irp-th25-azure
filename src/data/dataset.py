@@ -2,6 +2,7 @@ import io
 import os
 import re
 import json
+import glob
 import zipfile
 import tempfile
 import gdown
@@ -11,6 +12,7 @@ import time
 import threading
 import warnings
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pyproj import Transformer
@@ -19,8 +21,11 @@ from google.auth import default
 import numpy as np
 import pandas as pd
 
+# Suppress the noisy httplib2 transport warning log
+warnings.filterwarnings("ignore", message=".*transport does not support per-request timeout.*")
+
 # ==========================================
-# INITIALISATION
+# INITIALIZATION & CREDENTIALS
 # ==========================================
 credentials, project = default()
 storage_client = storage.Client(credentials=credentials)
@@ -29,25 +34,27 @@ ee.Initialize(credentials=credentials, project='wildfire-irp')
 BUCKET_NAME = "wildfire-irp-data-th25"
 bucket = storage_client.bucket(BUCKET_NAME)
 
-print("Caching existing files from GCS...")
-existing_blobs = set(b.name for b in bucket.list_blobs(prefix="processed_dataset/"))
-
+# ==========================================
+# OUTPUT PREFIX
+# ==========================================
 OUTPUT_PREFIX = "processed_dataset"
+
+print("Caching existing files from GCS...")
+existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/"))
 
 # ==========================================
 # REGION / TIME CONSTANTS
 # ==========================================
 AMERICAS_LON_BOUNDS = [-170.0, -30.0]
-
 VIIRS_POOL_BUFFER_DEG = 2.0
-
-# Same time period as the Pereira et al. Landsat-8 dataset (Aug-Sep 2020).
 VIIRS_DATE_RANGE = ("2020-08-01", "2020-09-30")
 
 # ==========================================
 # RESOLUTION / EXTENT CONSTANTS
+
+# NOTE: Pereira et al. patches are 256x256 px @ 30m = 7680m per side
 # ==========================================
-GOES_TEMPORAL_GUARD_MIN = 15     # Max temporal gap allowed between target time and GOES scene (minutes)
+GOES_TEMPORAL_GUARD_MIN = 30     # Max temporal gap allowed between target time and GOES scene (minutes)
 GOES_NATIVE_SCALE_M = 2000        # Native GOES ABI grid spacing
 
 LANDSAT_GRID_SCALE = 30           # 30m target resolution for Landsat branch
@@ -56,27 +63,30 @@ VIIRS_GRID_SCALE = 375            # 375m target resolution for VIIRS branch
 LANDSAT_TARGET_PIXELS = 256
 LANDSAT_TARGET_EXTENT_M = LANDSAT_TARGET_PIXELS * LANDSAT_GRID_SCALE  # 7680m - Pereira 256x256 @ 30m patches
 
-VIIRS_TARGET_PIXELS = 32
-VIIRS_TARGET_EXTENT_M = VIIRS_TARGET_PIXELS * VIIRS_GRID_SCALE  # 12000m
+VIIRS_TARGET_EXTENT_M = 7500 # 20 x 375m
+VIIRS_TARGET_PIXELS = int(VIIRS_TARGET_EXTENT_M / VIIRS_GRID_SCALE) # 20
 
-# Context ratios for GOES contextual windowing around the target patch. 1x means the context window is the same size as the target patch.
-# This is a hyperparameter that can be tuned to balance the amount of contextual information vs. the size of the input tensor.
-# This is because GOES has a much coarser resolution than Landsat or VIIRS, which means the GOES patch only covers a few pixels of the target patch.
-# Increasing the context ratio allows the model to see more of the surrounding area, which can help it learn better representations of the fire dynamics.
-LANDSAT_CONTEXT_RATIO = 1
-VIIRS_CONTEXT_RATIO = 1
+# Context-to-target ratio. This gives GOES and context data a zoomed-out window
+# A ratio of 1 means context == target extent.
+LANDSAT_CONTEXT_RATIO = 4
+VIIRS_CONTEXT_RATIO = 4
 
-LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 30720m (~15x15 GOES px)
-VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M        # 120000m (~60x60 GOES px)
+LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 30,720m (~15×15 GOES px)
+VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M        # 30,000m (~15×15 GOES px)
 
-MIN_ACTIVE_PIXELS = 2
+print(f"[CONFIG] OUTPUT_PREFIX={OUTPUT_PREFIX}, "
+      f"LANDSAT_CONTEXT_RATIO={LANDSAT_CONTEXT_RATIO}, VIIRS_CONTEXT_RATIO={VIIRS_CONTEXT_RATIO} "
+      f"(context_extent == target_extent when ratio == 1)")
+
+# Drop patches with fewer than 10 active pixels
+MIN_ACTIVE_PIXELS = 10
 
 # ==========================================
 # COVARIATES
 # ==========================================
 DEM_ASSET = ee.ImageCollection("COPERNICUS/DEM/GLO30").select('DEM').mosaic().rename(['elevation'])
 LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rename(['landcover'])
-COVARIATE_STACK = DEM_ASSET.addBands(LC_ASSET.toFloat())
+COVARIATE_STACK = DEM_ASSET.unmask(0).addBands(LC_ASSET.unmask(0).toFloat())
 
 # ==========================================
 # NASA VIIRS ARCHIVE: LOAD + FILTER
@@ -158,14 +168,17 @@ def wait_for_queue_slot():
 
     while True:
         tasks = ee.batch.Task.list()
-        active_tasks = len([t for t in tasks if t.status()['state'] in ['RUNNING', 'READY', 'PENDING']])
+        active_tasks = len([t for t in tasks if t.status()['state'] in ['RUNNING', 'READY']])
         if active_tasks < 2500:
             break
         print(f"    [WAIT] GEE Engine saturated ({active_tasks} tasks). Sleeping 45s...")
         time.sleep(45)
 
-def build_roi(center_lon, center_lat, extent_m):
-    return ee.Geometry.Point([center_lon, center_lat]).buffer(extent_m / 2).bounds()
+def build_roi(center_lon, center_lat, extent_m, target_crs):
+    """Builds a projection-aligned square bounding box."""
+    # Define point in lat/lon, transform to target UTM, buffer in meters, and get UTM bounds
+    pt = ee.Geometry.Point([center_lon, center_lat], 'EPSG:4326')
+    return pt.transform(target_crs).buffer(extent_m / 2).bounds(maxError=1, proj=target_crs)
 
 def parse_zip_patch_metadata(file_bytes, filename):
     meta_match = re.search(r'LC08_[A-Z0-9]{4}_\d{6}_(\d{8})', filename)
