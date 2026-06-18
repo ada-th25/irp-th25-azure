@@ -49,3 +49,14 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generated data exploration code in `notebooks/explore-dataset.ipynb`, where it checks for number of active pixel distributions and the number of files contained in Pereira et al. dataset. It also counts the number of raster data we get from the VIIRS csv data, and the number of active pixels in the rasterised VIIRS.
     * **Prompt:** (pasting existing data pipeline for reference) "Create a code to paste to an ipynb notebook to explore the distribution of the number of active pixels, and the number of masks contained in each files. Also, create code to count how much raster data we get, and the number of active pixels from the VIIRS data."
     * **Human Modification:** Add the gdrive ID for the relevant folders.
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 18/06/2026
+    * **Scope:** Generated data exploration code in `notebooks/explore-dataset.ipynb`, where it plots the Landsat/GOES/Covariates and VIIRS/GOES/Covariates data.
+    * **Prompt:** (pasting existing data pipeline) "Create a code to paste in an ipynb notebook to check and visualise the data so that you plot for Landsat/GOES/Covariates and VIIRS/GOES/Covariates dataset pairs."
+    * **Human Modification:** Change dataset path names.
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 18/06/2026
+    * **Scope:** Debug the issue with the blank GOES data fetched for the VIIRS target. Generated diagnostic code and the corresponding fix. Bug was fixed by fixing the geographical split to enforce GEE to use either GOES-16 or GOES-17 accordingly based on their geographical coverage.
+    * **Prompt:** (pasting existing data pipeline and the plot code and outputs) "The GOES data for the VIIRS target is black. Generate a diagnostic code to identify the problem, and give me the fix."

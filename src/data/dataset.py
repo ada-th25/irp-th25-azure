@@ -212,30 +212,49 @@ def get_utm_epsg(lon, lat):
 # FEATURE EXTRACTORS (GOES / VIIRS / COV)
 # ==========================================
 def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
-    """Returns a GOES MCMIPC image stack masked completely server-side 
-    if no scenes fall inside the temporal buffer window."""
-    satellite = "NOAA/GOES/17/MCMIPC" if lon_cen < -100.0 else "NOAA/GOES/16/MCMIPC"
-    
-    col = (ee.ImageCollection(satellite)
+    # 1. Merge collections natively to cover all of the Americas without string casting
+    col = (ee.ImageCollection("NOAA/GOES/16/MCMIPC")
+           .merge(ee.ImageCollection("NOAA/GOES/17/MCMIPC"))
            .filterBounds(context_roi)
-           .filterDate(target_date_ee.advance(-12, 'hour'), target_date_ee.advance(12, 'hour'))
+           .filterDate(target_date_ee.advance(-1, 'hour'), target_date_ee.advance(1, 'hour'))
            .select(['CMI_C07', 'CMI_C14']))
 
     target_millis = target_date_ee.millis()
-    
+
     col_with_time = col.map(lambda img: img.set(
         'time_diff', ee.Number(img.get('system:time_start')).subtract(target_millis).abs()
     ))
-    
-    closest = ee.Image(col_with_time.sort('time_diff').first())
-    tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI').toInt16()
-    final_stack = closest.select(['CMI_C07', 'CMI_C14']).addBands(tfi).clip(context_roi)
 
-    # Convert temporal constraints to structural pixel masks
+    # 2. Inject a dummy image to prevent Eager Evaluation null crashes on empty collections
+    dummy_img = (ee.Image.constant([0, 0])
+                 .rename(['CMI_C07', 'CMI_C14'])
+                 .set('time_diff', ee.Number(9999999999)))
+                 
+    safe_col = col_with_time.merge(ee.ImageCollection([dummy_img]))
+
+    # Collection is guaranteed to have >= 1 image, so .first() never returns null
+    closest = ee.Image(safe_col.sort('time_diff').first())
+    
+    tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
+    final_stack = closest.select(['CMI_C07', 'CMI_C14']).addBands(tfi).toInt16().clip(context_roi)
+
     max_diff_ms = GOES_TEMPORAL_GUARD_MIN * 60 * 1000
+
+    empty_fallback = (ee.Image.constant([0, 0, 0])
+                      .rename(['CMI_C07', 'CMI_C14', 'GOES_TFI'])
+                      .toInt16()
+                      .clip(context_roi))
+
     time_condition = ee.Number(closest.get('time_diff')).lte(max_diff_ms)
     
-    return final_stack.updateMask(time_condition)
+    # 3. Absolute Type Safety: Cast the final output to Int16 to guarantee TIFF compliance
+    result = ee.Image(ee.Algorithms.If(
+        time_condition,
+        final_stack,
+        empty_fallback
+    )).toInt16()
+    
+    return result
 
 # ==========================================
 # BRANCH A: GOES <-> LANDSAT
