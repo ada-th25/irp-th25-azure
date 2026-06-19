@@ -11,6 +11,7 @@ import traceback
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from scipy.ndimage import zoom
 
 sys.path.insert(0, "src/data")
 from wildfire_dataset import WildfireDataset
@@ -248,6 +249,242 @@ for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
         f"{uniform_count} uniform/flat images found",
         warn=uniform_count > 0
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. No all-zero inputs or targets in any pair
+# ══════════════════════════════════════════════════════════════════════════════
+print("=== 7. No all-zero components in any pair ===")
+ 
+for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    zero_goes, zero_target, zero_cov = [], [], []
+    for i in range(len(ds)):
+        s = ds[i]
+        if s["goes"].abs().max().item() == 0:
+            zero_goes.append(s["sample_id"])
+        if s["target"].abs().max().item() == 0:
+            zero_target.append(s["sample_id"])
+        if s["covariates"].abs().max().item() == 0:
+            zero_cov.append(s["sample_id"])
+ 
+    check(len(zero_goes) == 0,
+          f"{branch} no all-zero GOES",
+          f"{len(zero_goes)} all-zero: {zero_goes[:3]}")
+    check(len(zero_target) == 0,
+          f"{branch} no all-zero target",
+          f"{len(zero_target)} all-zero: {zero_target[:3]}")
+    check(len(zero_cov) == 0,
+          f"{branch} no all-zero covariates",
+          f"{len(zero_cov)} all-zero: {zero_cov[:3]}")
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. Ground truth has sufficient active fire signal
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n=== 8. Ground truth active fire signal ===")
+ 
+# Landsat: binary mask, require at least 10 active pixels (same as pipeline filter)
+# VIIRS:   FRP values, require at least 1 non-zero pixel
+MIN_LANDSAT_PIXELS = 10
+MIN_VIIRS_PIXELS   = 1
+ 
+for branch, ds, min_px in [
+    ("landsat", ds_ls, MIN_LANDSAT_PIXELS),
+    ("viirs",   ds_vr, MIN_VIIRS_PIXELS),
+]:
+    low_signal = []
+    pixel_counts = []
+    for i in range(len(ds)):
+        target = ds[i]["target"].numpy()
+        n_active = (target > 0).sum()
+        pixel_counts.append(int(n_active))
+        if n_active < min_px:
+            low_signal.append((ds[i]["sample_id"], int(n_active)))
+ 
+    print(f"  {branch}: active pixel counts — "
+          f"min={min(pixel_counts)} max={max(pixel_counts)} "
+          f"mean={np.mean(pixel_counts):.1f}")
+ 
+    check(
+        len(low_signal) == 0,
+        f"{branch} all targets have ≥{min_px} active fire pixels",
+        f"{len(low_signal)} below threshold: {low_signal[:3]}",
+        warn=True   # warn not error — sparse fires are valid, just flagged
+    )
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. GOES TFI hotspot overlaps with target fire region
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n=== 9. GOES TFI / target spatial overlap ===")
+ 
+# Strategy:
+#   - Upsample GOES TFI (band 2, C07-C14) to target spatial size
+#   - Identify top-k% hottest GOES pixels as "fire candidate" region
+#   - Check that at least one target fire pixel falls within that region
+#   - Since GOES covers 4x the extent, we only look at the central quarter
+#
+# This is a loose sanity check — misalignment is expected at GOES scale,
+# but gross failures (GOES hotspot in opposite corner from fire) are flagged.
+ 
+GOES_TFI_BAND    = 2   # band index in the (3,15,15) tensor: C07, C14, TFI
+TOP_PCT          = 25  # top 25% of GOES TFI pixels = "warm region"
+MIN_OVERLAP_PX   = 1   # at least 1 fire pixel must fall in the warm region
+ 
+def upsample_goes_to_target(goes_tfi, target_shape):
+    """Upsample GOES TFI (H,W) to target shape using nearest-neighbour."""
+    h_ratio = target_shape[0] / goes_tfi.shape[0]
+    w_ratio = target_shape[1] / goes_tfi.shape[1]
+    return zoom(goes_tfi, (h_ratio, w_ratio), order=0)
+ 
+for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    no_overlap = []
+    skipped    = 0
+ 
+    for i in range(len(ds)):
+        s      = ds[i]
+        target = s["target"].numpy()[0]       # (H, W)
+        tfi    = s["goes"].numpy()[GOES_TFI_BAND]  # (15, 15)
+ 
+        n_fire = (target > 0).sum()
+        if n_fire == 0:
+            skipped += 1
+            continue
+ 
+        # For Landsat: GOES covers 4x extent, so the target occupies the
+        # central 1/4 of the GOES footprint spatially.
+        # We crop GOES to the central quarter before upsampling.
+        h, w = tfi.shape
+        if branch == "landsat":
+            # Central quarter = middle 50% in each dimension
+            qh, qw = h // 4, w // 4
+            tfi_crop = tfi[qh:h-qh, qw:w-qw]
+        else:
+            # VIIRS: GOES and target cover the same extent (ratio=1)
+            tfi_crop = tfi
+ 
+        tfi_up   = upsample_goes_to_target(tfi_crop, target.shape)
+        threshold = np.percentile(tfi_up, 100 - TOP_PCT)
+        warm_mask = tfi_up >= threshold
+ 
+        overlap = int((warm_mask & (target > 0)).sum())
+        if overlap < MIN_OVERLAP_PX:
+            no_overlap.append((s["sample_id"], int(n_fire), overlap))
+ 
+    total_checked = len(ds) - skipped
+    check(
+        len(no_overlap) == 0,
+        f"{branch} GOES warm region overlaps target fire pixels "
+        f"({total_checked} checked, {skipped} skipped — no fire pixels)",
+        f"{len(no_overlap)} non-overlapping: {[x[0][:40] for x in no_overlap[:2]]}",
+        warn=True  # warn not error — loose geometric check
+    )
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. GOES brightness temperature plausibility
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n=== 10. GOES BT plausibility (physical range) ===")
+ 
+# After scale factor (x0.01): C07 and C14 should be in ~200–350 K range
+# Without scale factor (raw int16): values ~20000–35000
+# We detect which case we're in and flag accordingly.
+ 
+for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    s     = ds[0]
+    goes  = s["goes"].numpy()
+    c07   = goes[0]
+    c14   = goes[1]
+ 
+    c07_mean = c07.mean()
+    c14_mean = c14.mean()
+ 
+    # Physical BT range in Kelvin: ~200K (cold clouds) to ~350K (hot surface)
+    # If values are in range 200-400: scale factor applied correctly
+    # If values are >1000: raw int16 values, scale factor not applied
+    # If values are 0: empty/masked
+ 
+    bt_plausible = 200 <= c07_mean <= 400 and 200 <= c14_mean <= 400
+    raw_int16    = c07_mean > 1000
+ 
+    check(
+        bt_plausible,
+        f"{branch}/goes BT in physical range (200–400 K)",
+        f"C07 mean={c07_mean:.1f}, C14 mean={c14_mean:.1f}"
+        + (" — looks like raw int16, scale factor (×0.01) not applied!" if raw_int16 else ""),
+        warn=not bt_plausible
+    )
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. Covariate spatial diversity
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n=== 11. Covariate spatial diversity ===")
+ 
+for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    flat_dem, single_lc = [], []
+ 
+    for i in range(len(ds)):
+        cov = ds[i]["covariates"].numpy()
+        dem = cov[0]
+        lc  = cov[1]
+ 
+        # DEM should have some elevation variation (std > 5m)
+        if dem.std() < 5.0:
+            flat_dem.append(ds[i]["sample_id"])
+ 
+        # Land cover should have at least 2 distinct classes
+        unique_classes = len(np.unique(np.round(lc[lc > 0])))
+        if unique_classes < 2:
+            single_lc.append(ds[i]["sample_id"])
+ 
+    check(
+        len(flat_dem) == 0,
+        f"{branch} DEM has spatial variation (std > 5m)",
+        f"{len(flat_dem)} flat DEMs",
+        warn=True
+    )
+    check(
+        len(single_lc) == 0,
+        f"{branch} land cover has ≥2 classes per patch",
+        f"{len(single_lc)} single-class patches",
+        warn=True
+    )
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. Per-sample completeness summary
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n=== 12. Per-sample completeness summary ===")
+ 
+for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    print(f"\n  {branch} ({len(ds)} samples):")
+    print(f"  {'ID':<55} {'GOES':>6} {'target':>8} {'cov':>6} {'fire_px':>8}")
+    print(f"  {'-'*55} {'-'*6} {'-'*8} {'-'*6} {'-'*8}")
+ 
+    all_complete = True
+    for i in range(len(ds)):
+        s      = ds[i]
+        sid    = s["sample_id"][:52]
+        goes   = s["goes"].numpy()
+        target = s["target"].numpy()
+        cov    = s["covariates"].numpy()
+ 
+        goes_ok   = goes.max() > 0
+        target_ok = target.max() > 0
+        cov_ok    = cov.max() > 0
+        fire_px   = int((target > 0).sum())
+ 
+        g_str = "✓" if goes_ok   else "✗ EMPTY"
+        t_str = "✓" if target_ok else "✗ EMPTY"
+        c_str = "✓" if cov_ok    else "✗ EMPTY"
+ 
+        print(f"  {sid:<55} {g_str:>6} {t_str:>8} {c_str:>6} {fire_px:>8}")
+ 
+        if not (goes_ok and target_ok and cov_ok):
+            all_complete = False
+ 
+    check(all_complete, f"{branch} all pairs complete (no empty components)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
