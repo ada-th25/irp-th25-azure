@@ -54,7 +54,7 @@ VIIRS_DATE_RANGE = ("2020-08-01", "2020-09-30")
 
 # NOTE: Pereira et al. patches are 256x256 px @ 30m = 7680m per side
 # ==========================================
-GOES_TEMPORAL_GUARD_MIN = 30     # Max temporal gap allowed between target time and GOES scene (minutes)
+GOES_TEMPORAL_GUARD_MIN = 60     # Max temporal gap allowed between target time and GOES scene (minutes)
 GOES_NATIVE_SCALE_M = 2000        # Native GOES ABI grid spacing
 
 LANDSAT_GRID_SCALE = 30           # 30m target resolution for Landsat branch
@@ -152,7 +152,7 @@ def write_manifest(path, data):
     blob = bucket.blob(path)
     blob.upload_from_string(json.dumps(data, indent=2), content_type='application/json')
 
-EE_DISPATCH_WORKERS = 6
+EE_DISPATCH_WORKERS = 12
 QUEUE_CHECK_INTERVAL = 25
 _dispatch_count = 0
 _dispatch_count_lock = threading.Lock()
@@ -195,11 +195,36 @@ def parse_zip_patch_metadata(file_bytes, filename):
             t = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
             lon_min, lat_min = t.transform(bounds.left, bounds.bottom)
             lon_max, lat_max = t.transform(bounds.right, bounds.top)
-            lon_cen, lat_cen = t.transform((bounds.left + bounds.right) / 2, (bounds.bottom + bounds.top) / 2)
+            lon_cen, lat_cen = t.transform((bounds.left + bounds.right) / 2,
+                                            (bounds.bottom + bounds.top) / 2)
+
+    # Look up precise acquisition time from GEE Landsat metadata
+    # Scene ID encodes path/row: LC08_L1TP_PPPRRR_YYYYMMDD_...
+    scene_match = re.search(r'LC08_[A-Z0-9]{4}_(\d{3})(\d{3})_(\d{8})', filename)
+    acquisition_datetime = formatted_date  # fallback: date only
+    if scene_match:
+        try:
+            path = int(scene_match.group(1))
+            row  = int(scene_match.group(2))
+            d    = scene_match.group(3)
+            next_day = (datetime.strptime(d, "%Y%m%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+            ls_col = (ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA")
+                      .filterDate(formatted_date, next_day)
+                      .filter(ee.Filter.eq('WRS_PATH', path))
+                      .filter(ee.Filter.eq('WRS_ROW',  row)))
+            ls_time = ls_col.first().get('system:time_start').getInfo()
+            if ls_time:
+                acquisition_datetime = datetime.utcfromtimestamp(
+                    ls_time / 1000
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass  # fall back to date-only if GEE lookup fails
+
     return {
         "bbox": [lon_min, lat_min, lon_max, lat_max],
         "center": [lon_cen, lat_cen],
         "date": formatted_date,
+        "datetime": acquisition_datetime,
         "id": filename.replace(".tif", "")
     }
 
@@ -212,49 +237,54 @@ def get_utm_epsg(lon, lat):
 # FEATURE EXTRACTORS (GOES / VIIRS / COV)
 # ==========================================
 def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
-    #  Merge collections natively to cover all of the Americas without string casting
-    col = (ee.ImageCollection("NOAA/GOES/16/MCMIPC")
-           .merge(ee.ImageCollection("NOAA/GOES/17/MCMIPC"))
-           .filterBounds(context_roi)
-           .filterDate(target_date_ee.advance(-1, 'hour'), target_date_ee.advance(1, 'hour'))
+    context_roi_wgs84 = context_roi.transform('EPSG:4326', maxError=100)
+
+    col = (ee.ImageCollection("NOAA/GOES/16/MCMIPF")
+           .merge(ee.ImageCollection("NOAA/GOES/17/MCMIPF"))
+           .filterBounds(context_roi_wgs84)
+           .filterDate(target_date_ee.advance(-3, 'hour'), target_date_ee.advance(3, 'hour'))
            .select(['CMI_C07', 'CMI_C14']))
 
     target_millis = target_date_ee.millis()
 
-    col_with_time = col.map(lambda img: img.set(
-        'time_diff', ee.Number(img.get('system:time_start')).subtract(target_millis).abs()
-    ))
+    def scale_to_bt(img):
+        time_diff = ee.Number(img.get('system:time_start')).subtract(target_millis).abs()
+        c07_bt = (img.select('CMI_C07')
+                     .multiply(ee.Number(img.get('CMI_C07_scale')))
+                     .add(ee.Number(img.get('CMI_C07_offset'))))
+        c14_bt = (img.select('CMI_C14')
+                     .multiply(ee.Number(img.get('CMI_C14_scale')))
+                     .add(ee.Number(img.get('CMI_C14_offset'))))
+        return (c07_bt.rename('CMI_C07')
+                      .addBands(c14_bt.rename('CMI_C14'))
+                      .set('system:time_start', img.get('system:time_start'))
+                      .set('time_diff', time_diff))
 
-    # Inject a dummy image to prevent Eager Evaluation null crashes on empty collections
-    dummy_img = (ee.Image.constant([0, 0])
+    col = col.map(scale_to_bt)
+
+    dummy_img = (ee.Image.constant([0.0, 0.0])
                  .rename(['CMI_C07', 'CMI_C14'])
-                 .set('time_diff', ee.Number(9999999999)))
-                 
-    safe_col = col_with_time.merge(ee.ImageCollection([dummy_img]))
+                 .set('time_diff', ee.Number(9999999999))
+                 .set('system:time_start', ee.Number(0)))
 
-    # Collection is guaranteed to have >= 1 image, so .first() never returns null
-    closest = ee.Image(safe_col.sort('time_diff').first())
-    
-    tfi = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
-    final_stack = closest.select(['CMI_C07', 'CMI_C14']).addBands(tfi).toInt16().clip(context_roi)
+    safe_col  = col.merge(ee.ImageCollection([dummy_img]))
+    closest   = ee.Image(safe_col.sort('time_diff').first())
 
-    max_diff_ms = GOES_TEMPORAL_GUARD_MIN * 60 * 1000
+    tfi         = closest.select('CMI_C07').subtract(closest.select('CMI_C14')).rename('GOES_TFI')
+    final_stack = closest.select(['CMI_C07', 'CMI_C14']).addBands(tfi).toFloat()
 
-    empty_fallback = (ee.Image.constant([0, 0, 0])
+    max_diff_ms    = GOES_TEMPORAL_GUARD_MIN * 60 * 1000
+    empty_fallback = (ee.Image.constant([0.0, 0.0, 0.0])
                       .rename(['CMI_C07', 'CMI_C14', 'GOES_TFI'])
-                      .toInt16()
-                      .clip(context_roi))
+                      .toFloat())
 
     time_condition = ee.Number(closest.get('time_diff')).lte(max_diff_ms)
-    
-    # Absolute Type Safety: Cast the final output to Int16 to guarantee TIFF compliance
-    result = ee.Image(ee.Algorithms.If(
+
+    return ee.Image(ee.Algorithms.If(
         time_condition,
         final_stack,
         empty_fallback
-    )).toInt16()
-    
-    return result
+    )).toFloat()
 
 # ==========================================
 # BRANCH A: GOES <-> LANDSAT
@@ -291,9 +321,10 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
         print(f"    [SAVED] Landsat target: {sample_id} (n_active_pixels={n_active_pixels}, "
               f"mask_source={mask_source})")
 
-    goes_dispatched = gcs_exists(goes_prefix)  # already in bucket from a prior run
+    goes_blob = bucket.blob(f"{goes_prefix}.tif")
+    goes_dispatched = goes_blob.exists()
     if not goes_dispatched:
-        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['date']))
+        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['datetime']))
         wait_for_queue_slot()
         ee.batch.Export.image.toCloudStorage(
             image=goes_img, description=f"goes_ls_{sample_id}",
@@ -317,6 +348,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
         "branch": "landsat",
         "mask_source": mask_source,
         "date": meta['date'],
+        "datetime": meta['datetime'],
         "center": [center_lon, center_lat],
         "crs": utm_crs,
         "n_active_pixels": n_active_pixels,
@@ -375,7 +407,8 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         ).start()
         print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")
 
-    goes_dispatched = gcs_exists(goes_prefix)  # already in bucket from a prior run
+    goes_blob = bucket.blob(f"{goes_prefix}.tif")
+    goes_dispatched = goes_blob.exists()
     if not goes_dispatched:
         goes_img = fetch_goes_fire_features(context_roi, center_lon, ee_viirs_date)
         wait_for_queue_slot()
@@ -539,8 +572,6 @@ def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_su
     finally:
         if os.path.exists(extract_dir):
             shutil.rmtree(extract_dir)
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
     print(f"Dispatching {len(work_items)} Landsat samples with {dispatch_workers} workers...")
     with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
@@ -623,14 +654,17 @@ if __name__ == "__main__":
         "South_America.zip": "1hnBUmYkvFYohTf9hTnKiyp2MXVevglK7"
     }
 
-    # Manually-annotated validation patches (Pereira et al.)
+    # Manually-annotated validation patches (Pereira et al.): 13 large
+    # Landsat-8 scenes from Sept 2020.
+    # Same 256x256 @ 30m / binary {0,1} convention as the continental
+    # archives, but a single flat zip rather than nested per-scene
+    # sub-archives - handled by process_flat_zip().
     MANUAL_ANNOTATIONS_FILE_ID = "1LdsX-rH5hy_82jfc1akO8p4n0_N8lRgf"
     MANUAL_ANNOTATIONS_FILE_NAME = "manual_annotations_patches.zip"
 
     MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
-    MAX_TIFFS_PER_SUB = 10_000
-
-    MAX_VIIRS_CLUSTERS = 3000
+    MAX_TIFFS_PER_SUB = 10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
+    MAX_VIIRS_CLUSTERS = 5000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 

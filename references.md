@@ -60,3 +60,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 18/06/2026
     * **Scope:** Debug the issue with the blank GOES data fetched for the VIIRS target. Generated diagnostic code and the corresponding fix. Bug was fixed by fixing the geographical split to enforce GEE to use either GOES-16 or GOES-17 accordingly based on their geographical coverage.
     * **Prompt:** (pasting existing data pipeline and the plot code and outputs) "The GOES data for the VIIRS target is black. Generate a diagnostic code to identify the problem, and give me the fix."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 18/06/2026
+    * **Scope:** Generate test script `tests/test_dataset.py` to test the dataset that's downloaded in GCP.
+    * **Prompt:** (pasting existing data pipeline) "Generate a test script to verify the data stored using this pipeline."
