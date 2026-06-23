@@ -10,10 +10,11 @@ import sys
 import traceback
 import numpy as np
 import torch
+import os
 from torch.utils.data import DataLoader
 from scipy.ndimage import zoom
 
-sys.path.insert(0, "src/data")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "data"))
 from wildfire_dataset import WildfireDataset
 
 BUCKET_NAME   = "wildfire-irp-data-th25"
@@ -115,8 +116,8 @@ for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
         # GOES: raw int16 brightness temps scaled to float — expect values > 1000
         goes = sample["goes"]
         check(
-            goes.max().item() > 100,
-            f"{branch}/goes has non-trivial values",
+            goes.max().item() > 200,
+            f"{branch}/goes has non-trivial values (expect ~290-310K)",
             f"max={goes.max().item():.1f}"
         )
         check(
@@ -301,9 +302,12 @@ for branch, ds, min_px in [
         if n_active < min_px:
             low_signal.append((ds[i]["sample_id"], int(n_active)))
  
-    print(f"  {branch}: active pixel counts — "
-          f"min={min(pixel_counts)} max={max(pixel_counts)} "
-          f"mean={np.mean(pixel_counts):.1f}")
+    if pixel_counts:
+        print(f"  {branch}: active pixel counts — "
+              f"min={min(pixel_counts)} max={max(pixel_counts)} "
+              f"mean={np.mean(pixel_counts):.1f}")
+    else:
+        print(f"  {branch}: no samples to report pixel counts for")
  
     check(
         len(low_signal) == 0,
@@ -391,6 +395,9 @@ print("\n=== 10. GOES BT plausibility (physical range) ===")
 # We detect which case we're in and flag accordingly.
  
 for branch, ds in [("landsat", ds_ls), ("viirs", ds_vr)]:
+    if ds is None or len(ds) == 0:
+        print(f"  Skipping {branch} — no samples")
+        continue
     s     = ds[0]
     goes  = s["goes"].numpy()
     c07   = goes[0]
