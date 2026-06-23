@@ -2,6 +2,14 @@ This file contains references and AI disclosures specific to the codebase in thi
 
 **Academic Citations:** For bibliography and references related to the written report, please see [`deliverables/references.bib`](./deliverables/references.bib).
 
+# Code Repositories
+
+* **HAUNet_RSISR**
+    * **Date Used:** 23/06/2026
+    * **Repository:** https://github.com/likakakaka/HAUNet_RSISR
+    * **Paper:** J. Wang, B. Wang, X. Wang, Y. Zhao and T. Long, "Hybrid Attention-Based U-Shaped Network for Remote Sensing Image Super-Resolution," in IEEE Transactions on Geoscience and Remote Sensing, vol. 61, pp. 1-15, 2023, Art no. 5612515, doi: 10.1109/TGRS.2023.3283769.
+    * **Usage:** Used their `codes/model/haunet.py` to build the core HAUNet architecture.
+
 # AI Usage
 
 * **Tool:** Anthropic Claude (Sonnet 4.6)
@@ -14,6 +22,12 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generated the initialisation code for the data processing pipeline in `src/data/dataset.py`.
     * **Prompt:** "Create initialisation for the data pipeline, including initialising the buckets in GCP, the resolution of the data, extent covariates (COPERNICUS/DEM/GLO30 and ESA/WorldCover/v100)"
     * **Human Modification:** Added context ratio to make GOES/VIIRS image bounds larger to better capture spatial context.
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 13/06/2026
+    * **Scope:** Generate the code for the main loop that runs the dataset pipeline in `src/data/dataset.py`. Including `process_flat_zip` function to handle zip file processing.
+    * **Prompt:** (pasting existing data pipeline, and the file structure of the Pereira et al. Landsat files) "Generate the main loop that runs the dataset pipeline. Also create a function that process the zip files in the Pereira et al. dataset."
+    * **Human Modification:** Add processing of manually annotated Landsat mask data.
 
 * **Tool:** Google Gemini (3.5)
     * **Date Used:** 13/06/2026
