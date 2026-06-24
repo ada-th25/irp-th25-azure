@@ -64,6 +64,11 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Prompt:** (pasting existing data pipeline for reference) "Create a code to paste to an ipynb notebook to explore the distribution of the number of active pixels, and the number of masks contained in each files. Also, create code to count how much raster data we get, and the number of active pixels from the VIIRS data."
     * **Human Modification:** Add the gdrive ID for the relevant folders.
 
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 17/06/2026
+    * **Scope:** Generate the initial data loader script in `src/data/wildfire_dataset.py`.
+    * **Prompt:** (pasting existing data pipeline) "Generate a data loader script to load the dataset inside the GCP bucket. The shapes of the data are as follows: Landsat pairs: GOES (3, 15, 15), covariates (2, 256, 256), target Landsat (1, 256, 256). VIIRs pairs: GOES (3, 15, 15), covariates (2, 80, 80), target VIIRS (1, 20, 20). Include a function that filters GOES data where it's all zero masks."
+
 * **Tool:** Google Gemini (3.5)
     * **Date Used:** 18/06/2026
     * **Scope:** Generated data exploration code in `notebooks/explore-dataset.ipynb`, where it plots the Landsat/GOES/Covariates and VIIRS/GOES/Covariates data.
