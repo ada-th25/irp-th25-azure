@@ -1,10 +1,27 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-def make_model(args, parent=False):
-    return HAUNet(up_scale=args.scale[0], width=96, enc_blk_nums=[5,5],dec_blk_nums=[5,5],middle_blk_num=10)
+
+def make_model(goes_channels=3, cov_channels=2):
+    """
+    Factory function for the wildfire-adapted HAUNet.
+ 
+    Args:
+        goes_channels: number of GOES input bands (default 3: C07, C14, TFI)
+        cov_channels:  number of covariate bands (default 2: DEM, land cover)
+ 
+    Returns:
+        HAUNet instance configured for 256x256 -> 256x256 fire mask prediction.
+    """
+    return HAUNet(
+        goes_channels=goes_channels,
+        cov_channels=cov_channels,
+        width=96,
+        enc_blk_nums=[5, 5],
+        dec_blk_nums=[5, 5],
+        middle_blk_num=10,
+    )
 
 class LayerNormFunction(torch.autograd.Function):
     @staticmethod
@@ -31,6 +48,7 @@ class LayerNormFunction(torch.autograd.Function):
         gx = 1. / torch.sqrt(var + eps) * (g - y * mean_gy - mean_g)
         return gx, (grad_output * y).sum(dim=3).sum(dim=2).sum(dim=0), grad_output.sum(dim=3).sum(dim=2).sum(
             dim=0), None
+
 class LayerNorm2d(nn.Module):
 
     def __init__(self, channels, eps=1e-6):
@@ -121,7 +139,6 @@ def replace_layers(model, base_size, train_size, fast_imp, **kwargs):
             assert m.output_size == 1
             setattr(model, n, pool)
 
-
 class Local_Base():
     def convert(self, *args, train_size, **kwargs):
         replace_layers(self, *args, train_size=train_size, **kwargs)
@@ -133,6 +150,7 @@ class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return x1 * x2
+
 class Reconstruct(nn.Module):
     def __init__(self, scale_factor):
         super(Reconstruct, self).__init__()
@@ -145,6 +163,7 @@ class Reconstruct(nn.Module):
         if self.scale_factor!=1:
             x = nn.Upsample(scale_factor=self.scale_factor)(x)
         return x
+
 class qkvblock(nn.Module):
     def __init__(self, c, num_heads=2, FFN_Expand=2):
         super().__init__()
@@ -279,6 +298,7 @@ class qkvblock(nn.Module):
         outs.append(out1)
         outs.append(out2)
         return outs
+
 class lateral_nafblock(nn.Module):
     def __init__(self, c,num_heads=3,num_block=1):
         super().__init__()
@@ -438,115 +458,138 @@ class CEMBlock(nn.Module):
         x = self.dropout2(x)
 
         return y + x * self.gamma
+
+# ---------------------------------------------------------------------------
+# Main model
+# ---------------------------------------------------------------------------
 class HAUNet(nn.Module):
-
-    def __init__(self, up_scale=4, img_channel=3, width=180, middle_blk_num=10, enc_blk_nums=[5,5], dec_blk_nums=[5,5], heads = [1,2,4],):
+    """
+    Wildfire-adapted HAUNet.
+ 
+    Input  : (B, goes_channels + cov_channels, 256, 256)
+             GOES bands must be bilinearly upsampled to 256x256 BEFORE
+             being passed in. Covariates are already at 30m / 256x256.
+    Output : (B, 1, 256, 256)  —  raw fire mask logit (no sigmoid).
+             Apply torch.sigmoid() for inference; use BCEWithLogitsLoss
+             during training.
+    """
+ 
+    def __init__(
+        self,
+        goes_channels = 3,
+        cov_channels = 2,
+        width = 96,
+        middle_blk_num = 10,
+        enc_blk_nums = [5, 5],
+        dec_blk_nums = [5, 5],
+        heads = [1, 2, 4],
+    ):
         super().__init__()
-
-        self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1,
-                               groups=1,
-                               bias=True)
+ 
+        in_channels = goes_channels + cov_channels
+ 
+        self.intro = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=width,
+            kernel_size=3, padding=1, stride=1, groups=1, bias=True
+        )
 
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
-
-
+ 
         chan = width
-        ii=0
-        for numii in range(len(enc_blk_nums)):
-            num = enc_blk_nums[numii]
+        ii   = 0
+        for numii, num in enumerate(enc_blk_nums):
             if numii < 1:
-                self.encoders.append(
-                    nn.Sequential(
-                        *[S_CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
-                    )
-                )
+                self.encoders.append(nn.Sequential(
+                    *[S_CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
+                ))
             else:
-                self.encoders.append(
-                    nn.Sequential(
-                        *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
-                    )
-                )
-            self.downs.append(
-                nn.Conv2d(chan, chan, 2, 2)
-            )
-            ii+=1
-        self.lateral_nafblock = lateral_nafblock(chan)
-        self.enc_middle_blks = \
-            nn.Sequential(
-                *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
-            )
-        self.dec_middle_blks = \
-            nn.Sequential(
-                *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
-            )
-        ii=0
-        for numii in range(len(dec_blk_nums)):
-            num = dec_blk_nums[numii]
-            self.ups.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(chan, chan, kernel_size=2, stride=2)
-                )
-            )
-            # chan = chan // 2
-            if numii < 1:
-                self.decoders.append(
-                    nn.Sequential(
-                        *[CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
-                    )
-                )
-            else:
-                self.decoders.append(
-                    nn.Sequential(
-                        *[S_CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
-                    )
-                )
+                self.encoders.append(nn.Sequential(
+                    *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
+                ))
+            self.downs.append(nn.Conv2d(chan, chan, 2, 2))
             ii += 1
-        self.dec_blk_nums=dec_blk_nums
-        self.padder_size = 2 ** len(self.encoders)
-        self.up = nn.Sequential(
-            nn.Conv2d(in_channels=width, out_channels=img_channel * up_scale ** 2, kernel_size=3, padding=1, stride=1,
-                      groups=1, bias=True),
-            nn.PixelShuffle(up_scale)
+ 
+        self.lateral_nafblock = lateral_nafblock(chan)
+        self.enc_middle_blks  = nn.Sequential(
+            *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
         )
-        self.up_scale = up_scale
+        self.dec_middle_blks  = nn.Sequential(
+            *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
+        )
+ 
+        ii = 0
+        for numii, num in enumerate(dec_blk_nums):
+            self.ups.append(nn.Sequential(
+                nn.ConvTranspose2d(chan, chan, kernel_size=2, stride=2)
+            ))
+            if numii < 1:
+                self.decoders.append(nn.Sequential(
+                    *[CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
+                ))
+            else:
+                self.decoders.append(nn.Sequential(
+                    *[S_CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
+                ))
+            ii += 1
+ 
+        self.dec_blk_nums = dec_blk_nums
+        self.padder_size  = 2 ** len(self.encoders)
 
+        self.output_head = nn.Conv2d(
+            in_channels=width,
+            out_channels=1,
+            kernel_size=3, padding=1, stride=1, bias=True
+        )
+ 
     def forward(self, inp):
-        inp_hr = F.interpolate(inp, scale_factor=self.up_scale, mode='bilinear')
-        x = self.intro(inp)
-
+        """
+        Args:
+            inp: (B, goes_channels + cov_channels, H, W)
+                 GOES bands bilinearly upsampled to (H, W) = (256, 256).
+                 Covariates at native 30m resolution, same spatial extent.
+        Returns:
+            (B, 1, H, W) fire mask logit — apply sigmoid for probabilities.
+        """
+ 
+        x = self.intro(inp)   # (B, width, H, W)
+ 
         encs = []
-
         for encoder, down in zip(self.encoders, self.downs):
             x = encoder(x)
             encs.append(x)
             x = down(x)
-
+ 
         x = self.enc_middle_blks(x)
         encs.append(x)
+
         outs = self.lateral_nafblock(encs)
         x = outs[-1]
         x = self.dec_middle_blks(x)
+
         outs2 = outs[:2]
         for decoder, up, enc_skip in zip(self.decoders, self.ups, outs2[::-1]):
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
-
-        x = self.up(x)
-        x = x + inp_hr
-
-        return x
-
+ 
+        x = self.output_head(x)   # (B, 1, H, W)
+ 
+        return x   # raw logit; caller applies sigmoid or BCEWithLogitsLoss
+ 
     def check_image_size(self, x):
+        """Pad input to be divisible by padder_size (= 2^num_encoder_stages)."""
         _, _, h, w = x.size()
         mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
         mod_pad_w = (self.padder_size - w % self.padder_size) % self.padder_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
-        return x
+        return F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
 
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
 
 def count_parameters(net):
     params = list(net.parameters())
@@ -592,24 +635,35 @@ def print_network(net):
 
 if __name__ == '__main__':
     import time
-    from thop import profile
-    net = HAUNet(up_scale=4, width=96, enc_blk_nums=[5,5],dec_blk_nums=[5,5],middle_blk_num=10).cuda()
-    torch.cuda.reset_max_memory_allocated()
-    x = torch.rand(1, 3, 64, 64).cuda()
-    y = net(x)
-    # 获取模型最大内存消耗
-    max_memory_reserved = torch.cuda.max_memory_reserved(device='cuda') / (1024 ** 2)
-
-    print(f"模型最大内存消耗: {max_memory_reserved:.2f} MB")
-    flops, params = profile(net, (x,))
-    print('flops: %.4f G, params: %.4f M' % (flops / 1e9, params / 1000000.0))
-    net = net.cuda()
-    x = x.cuda()
-    timer = Timer()
-    timer.tic()
-    for i in range(100):
-        timer.tic()
+ 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Running on: {device}")
+ 
+    net = make_model(goes_channels=3, cov_channels=2).to(device)
+    count_parameters(net)
+ 
+    # Simulate a batch of 2 samples at the wildfire input resolution
+    # GOES (3 ch) + covariates (2 ch), all at 256×256
+    x = torch.rand(2, 5, 256, 256).to(device)
+ 
+    with torch.no_grad():
         y = net(x)
-        timer.toc()
-    print('Do once forward need {:.3f}ms '.format(timer.total_time * 1000 / 100.0))
+ 
+    print(f"Input shape:  {x.shape}")   # (2, 5, 256, 256)
+    print(f"Output shape: {y.shape}")   # (2, 1, 256, 256) fire mask logits
+ 
+    # Verify output range is unbounded (logits, not probabilities)
+    print(f"Output min/max (logits): {y.min():.3f} / {y.max():.3f}")
+    print(f"Output after sigmoid  :  {y.sigmoid().min():.3f} / {y.sigmoid().max():.3f}")
+ 
+    # Quick timing
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+    t0 = time.time()
+    for _ in range(10):
+        with torch.no_grad():
+            _ = net(x)
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+    print(f"Mean forward pass: {(time.time() - t0) / 10 * 1000:.1f} ms")
 
