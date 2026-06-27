@@ -101,3 +101,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Modify the original HAUNet (`src/models/haunet/haunet.py`) to fit the requirements for the wildfire downscaling model.
     * **Prompt:** (pasting the original HAUNet model) "Make edits to this to fit with my wildfire downscaling task (input GOES+covariates -> VIIRS or Landsat). This includes removing the residual learning, accepting more input channels (5), outputting 1 channel."
     * **Human Modification:** Change up_scale from 4 to 1, as spatial upscaling will occur before the network.
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 27/06/2026
+    * **Scope:** Generate function for data splitting (`src/data/split_data.py`) where it assigns each data to percentile bins based on number of active fire pixels. This assignent is used to ensure the split produces balanced dataset.
+    * **Prompt:** (pasting the existing code for wildfire_dataset and dataset) "Write a function that splits the data id into trining/test/val, where the data is assigned into quartile bins based on number of active fire pixels for a balanced dataset. Then split the data according to the bins for balanced dataset."
+    * **Human Modification:** Modified to use sklearn's StratifiedShuffleSplit after assigning bin categories.

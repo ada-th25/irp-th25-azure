@@ -2,7 +2,7 @@
 
 This repository contains the source code, data pipelines, and documentation for an Independent Research Project (IRP) focused on the high-resolution spatial downscaling of wildfire data down to 30m resolution.
 
-The core objective is to evaluate and compare two main downscaling pathways—**Cascaded Super-Resolution** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m)—to analyze spatial hallucination trade-offs using state-of-the-art generative and attention-based architectures.
+The core objective is to evaluate and compare two main downscaling pathways: **Cascaded Super-Resolution** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m) to analyse spatial hallucination trade-offs using state-of-the-art remote sensing spatial downscaling architectures.
 
 ---
 
