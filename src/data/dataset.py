@@ -25,7 +25,7 @@ import pandas as pd
 warnings.filterwarnings("ignore", message=".*transport does not support per-request timeout.*")
 
 # ==========================================
-# INITIALIZATION & CREDENTIALS
+# Initialisation & Credentials
 # ==========================================
 credentials, project = default()
 storage_client = storage.Client(credentials=credentials)
@@ -35,7 +35,7 @@ BUCKET_NAME = "wildfire-irp-data-th25"
 bucket = storage_client.bucket(BUCKET_NAME)
 
 # ==========================================
-# OUTPUT PREFIX
+# Output Prefix
 # ==========================================
 OUTPUT_PREFIX = "processed_dataset"
 
@@ -43,14 +43,14 @@ print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/"))
 
 # ==========================================
-# REGION / TIME CONSTANTS
+# Region / Time Constants
 # ==========================================
 AMERICAS_LON_BOUNDS = [-170.0, -30.0]
 VIIRS_POOL_BUFFER_DEG = 2.0
 VIIRS_DATE_RANGE = ("2020-08-01", "2020-09-30")
 
 # ==========================================
-# RESOLUTION / EXTENT CONSTANTS
+# Resolution / Extent Constants
 
 # NOTE: Pereira et al. patches are 256x256 px @ 30m = 7680m per side
 # ==========================================
@@ -68,11 +68,11 @@ VIIRS_TARGET_PIXELS = int(VIIRS_TARGET_EXTENT_M / VIIRS_GRID_SCALE) # 20
 
 # Context-to-target ratio. This gives GOES and context data a zoomed-out window
 # A ratio of 1 means context == target extent.
-LANDSAT_CONTEXT_RATIO = 4
-VIIRS_CONTEXT_RATIO = 4
+LANDSAT_CONTEXT_RATIO = 1
+VIIRS_CONTEXT_RATIO = 1
 
-LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M  # 30,720m (~15×15 GOES px)
-VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M        # 30,000m (~15×15 GOES px)
+LANDSAT_CONTEXT_EXTENT_M = LANDSAT_CONTEXT_RATIO * LANDSAT_TARGET_EXTENT_M 
+VIIRS_CONTEXT_EXTENT_M = VIIRS_CONTEXT_RATIO * VIIRS_TARGET_EXTENT_M
 
 print(f"[CONFIG] OUTPUT_PREFIX={OUTPUT_PREFIX}, "
       f"LANDSAT_CONTEXT_RATIO={LANDSAT_CONTEXT_RATIO}, VIIRS_CONTEXT_RATIO={VIIRS_CONTEXT_RATIO} "
@@ -82,14 +82,14 @@ print(f"[CONFIG] OUTPUT_PREFIX={OUTPUT_PREFIX}, "
 MIN_ACTIVE_PIXELS = 10
 
 # ==========================================
-# COVARIATES
+# Covariates
 # ==========================================
 DEM_ASSET = ee.ImageCollection("COPERNICUS/DEM/GLO30").select('DEM').mosaic().rename(['elevation'])
 LC_ASSET = ee.ImageCollection("ESA/WorldCover/v100").select('Map').mosaic().rename(['landcover'])
 COVARIATE_STACK = DEM_ASSET.unmask(0).addBands(LC_ASSET.unmask(0).toFloat())
 
 # ==========================================
-# NASA VIIRS ARCHIVE: LOAD + FILTER
+# NASA VIIRS Archive: Load + Filter
 # ==========================================
 VIIRS_CSV_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"
 VIIRS_CSV_GCS_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"  # path inside the bucket
@@ -128,7 +128,7 @@ df_viirs = df_viirs[
 print(f"VIIRS branch pool after Aug-Sep-2020 filtering: {len(df_viirs)} detections.")
 
 # ==========================================
-# CORE UTILITIES
+# Core Utilities
 # ==========================================
 def gcs_exists(path_prefix):
     return any(name.startswith(path_prefix) for name in existing_blobs)
@@ -234,7 +234,7 @@ def get_utm_epsg(lon, lat):
     return f"EPSG:{32600 + zone}" if lat >= 0 else f"EPSG:{32700 + zone}"
 
 # ==========================================
-# FEATURE EXTRACTORS (GOES / VIIRS / COV)
+# Feature Extractors (GOES / VIIRS / COV)
 # ==========================================
 def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
     context_roi_wgs84 = context_roi.transform('EPSG:4326', maxError=100)
@@ -287,7 +287,7 @@ def fetch_goes_fire_features(context_roi, lon_cen, target_date_ee):
     )).toFloat()
 
 # ==========================================
-# BRANCH A: GOES <-> LANDSAT
+# Branch A: GOES <-> Landsat
 # ==========================================
 def process_landsat_sample(meta, fb, mask_source="intersection"):
     sample_id = meta['id']
@@ -368,7 +368,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
     })
 
 # ==========================================
-# BRANCH B: GOES <-> VIIRS
+# Branch B: GOES <-> VIIRS
 # ==========================================
 def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
     df = df.copy()
@@ -502,7 +502,7 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
                 print(f"    [!] Skipping VIIRS cluster {key}: {e}")
 
 # ==========================================
-# MASTER LOOP: LANDSAT BRANCH
+# Master Loop: Landsat Branch
 # ==========================================
 def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_sub=2,
                        dispatch_workers=EE_DISPATCH_WORKERS):
@@ -584,7 +584,7 @@ def process_public_zip(file_id, file_name, max_sub_archives=15, max_tiffs_per_su
                 print(f"    [!] Error processing {sample_id}: {e}")
 
 # ==========================================
-# EXECUTION LOOP
+# Execution Loop
 # ==========================================
 def process_flat_zip(file_id, file_name, mask_source, max_tiffs=10_000,
                       dispatch_workers=EE_DISPATCH_WORKERS):

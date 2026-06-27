@@ -6,6 +6,45 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from google.cloud import storage
 
+# ------------------------------------------------------------------
+# Data Split
+# ------------------------------------------------------------------
+def load_split_ids(bucket_name: str, branch: str,
+                   split: str, output_prefix: str = "processed_dataset") -> set[str]:
+    """
+    Read a split text file from GCS and return the set of sample IDs.
+ 
+    Args:
+        bucket_name: GCS bucket (e.g. 'wildfire-irp-data-th25')
+        branch: 'landsat' or 'viirs'
+        split: 'train', 'val', or 'test'
+        output_prefix: top-level GCS prefix (default 'processed_dataset')
+ 
+    Returns:
+        Set of sample ID strings.
+ 
+    Raises:
+        FileNotFoundError if the split file does not exist, run
+        split_data.py first.
+    """
+    path   = f"{output_prefix}/splits/{branch}/{split}.txt"
+    bucket = storage.Client().bucket(bucket_name)
+    blob   = bucket.blob(path)
+ 
+    if not blob.exists():
+        raise FileNotFoundError(
+            f"Split file not found: gs://{bucket_name}/{path}\n"
+            f"Run split_data.py first to generate splits."
+        )
+ 
+    content = blob.download_as_text().strip()
+    ids     = set(line.strip() for line in content.splitlines() if line.strip())
+    print(f"[load_split_ids] Loaded {len(ids)} IDs for {branch}/{split}")
+    return ids
+
+# ------------------------------------------------------------------
+# Dataset
+# ------------------------------------------------------------------
 
 class WildfireDataset(Dataset):
     """
@@ -14,9 +53,9 @@ class WildfireDataset(Dataset):
 
     Spatial layout after __getitem__:
         Landsat branch:
-            goes       -> (3, 15, 15)    bilinear snap from ~15-16px GEE output
+            goes       -> (3, 15, 15)   bilinear snap from ~15-16px GEE output
             covariates -> (2, 256, 256)  centre-cropped from 1024px context export
-            target     -> (1, 256, 256)  Pereira et al. Landsat patch
+            target     -> (1, 256, 256)  untouched Pereira patch
 
         VIIRS branch:
             goes       -> (3, 15, 15)   bilinear snap from 15px GEE output
@@ -24,41 +63,49 @@ class WildfireDataset(Dataset):
             target     -> (1, 20, 20)   nearest snap from GEE output (7500m @ 375m)
 
     Completeness filtering:
-        Samples are dropped at init time if any of the three
+        Samples are silently dropped at init time if any of the three
         files are missing from GCS, or if the GOES raster is all-masked
-        (all zeros across all bands — indicates a failed/empty GEE export).
+        (all zeros across all bands, indicates a failed/empty GEE export).
         The number of dropped samples is reported via self.n_dropped.
     """
 
-    def __init__(self, bucket_name, output_prefix, branch="landsat"):
+    def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None):
         self.bucket = storage.Client().bucket(bucket_name)
         self.branch = branch
+        self.output_prefix = output_prefix
 
         if branch == "landsat":
             self.target_size = (256, 256)
-            self.goes_size   = (15, 15)
             self.cov_size    = (256, 256)
-            self.cov_mode    = "crop"
         else:  # viirs
             self.target_size = (20, 20)
-            self.goes_size   = (15, 15)
-            self.cov_size    = (80, 80)
-            self.cov_mode    = "resize"
+            self.cov_size    = (20, 20)
 
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
         raw_samples = []
         for blob in self.bucket.list_blobs(prefix=manifest_prefix):
             if blob.name.endswith(".json"):
-                data = json.loads(blob.download_as_text())
-                raw_samples.append(data)
+                try:
+                    raw_samples.append(json.loads(blob.download_as_text()))
+                except Exception:
+                    pass
+
+        if split_ids is not None:
+            before = len(raw_samples)
+            raw_samples = [m for m in raw_samples if m.get("id") in split_ids]
+            print(f"[WildfireDataset/{branch}] Split filter: "
+                  f"{len(raw_samples)}/{before} samples in provided split.")
 
         self.samples, self.n_dropped = self._filter_complete(raw_samples)
+        
         if self.n_dropped > 0:
             print(
                 f"[WildfireDataset/{branch}] Dropped {self.n_dropped}/{len(raw_samples)} "
                 f"incomplete or all-masked samples. "
                 f"{len(self.samples)} usable pairs remaining."
             )
+        else:
+            print(f"[WildfireDataset/{branch}] {len(self.samples)} usable pairs.")
 
     # ------------------------------------------------------------------
     # Completeness filtering
@@ -129,3 +176,159 @@ class WildfireDataset(Dataset):
 
             valid.append(m)
         return valid, dropped
+
+    # ------------------------------------------------------------------
+    # Raster I/O
+    # ------------------------------------------------------------------
+
+    def _read_gcs_raster(self, gcs_path, fill_nodata=0.0):
+        blob = self.bucket.blob(gcs_path)
+        raw  = blob.download_as_bytes()
+        with rasterio.MemoryFile(raw) as memfile:
+            with memfile.open() as src:
+                data   = src.read().astype(np.float32)
+                nodata = src.nodata
+        if nodata is not None:
+            data[data == nodata] = fill_nodata
+        # Always replace NaN regardless of nodata metadata
+        data[~np.isfinite(data)] = fill_nodata
+        return torch.from_numpy(data)
+
+    def _centre_crop(self, tensor, size):
+        _, h, w = tensor.shape
+        th, tw  = size
+        if h < th or w < tw:
+            tensor = F.interpolate(
+                tensor.unsqueeze(0), size=(max(h, th), max(w, tw)),
+                mode='bilinear', align_corners=False
+            ).squeeze(0)
+            _, h, w = tensor.shape
+        top  = (h - th) // 2
+        left = (w - tw) // 2
+        return tensor[:, top:top+th, left:left+tw]
+
+    # ------------------------------------------------------------------
+    # Dataset protocol
+    # ------------------------------------------------------------------
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        manifest = self.samples[idx]
+        paths    = manifest["paths"]
+
+        target = self._read_gcs_raster(paths["target"])
+        goes   = self._read_gcs_raster(paths["goes_input"])
+        cov    = self._read_gcs_raster(paths["covariates"])
+
+        # GOES: bilinear snap to canonical size (handles ±1px GEE snapping)
+        goes = F.interpolate(
+            goes.unsqueeze(0),
+            size=self.target_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(0)   # (3, 256, 256) or (3, 20, 20)
+
+        # Snap covariates to target size (handles ±1-2px GEE grid snapping)
+        if cov.shape[-2:] != self.target_size:
+            cov = F.interpolate(
+                cov.unsqueeze(0),
+                size=self.cov_size,
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)   # (2, 256, 256) or (2, 20, 20)
+
+        # Snap target (Landsat only, Pereira et al. patches should be exactly 256x256
+        # but GEE snapping can produce ±1px)
+        if target.shape[-2:] != self.target_size:
+            target = F.interpolate(
+                target.unsqueeze(0),
+                size=self.target_size,
+                mode="nearest",
+            ).squeeze(0)   # (1, 256, 256) nearest preserves binary labels
+
+        # Concatenate GOES and covariates into a single input tensor.
+        # (5, 256, 256) = 3 GOES channels + 2 covariate channels.
+        inp = torch.cat([goes, cov], dim=0)   # (5, H, W)
+
+        return {
+            "input":      inp,
+            "target":     target,
+            "goes":       goes,
+            "covariates": cov,
+            "sample_id":  manifest["id"],
+            "date":       manifest["date"],
+        }
+
+# ------------------------------------------------------------------
+# pos_weight helper
+# ------------------------------------------------------------------
+def compute_pos_weight(
+    bucket_name:   str,
+    branch:        str,
+    split_ids:     set,
+    output_prefix: str = "processed_dataset",
+    max_samples:   int = 200,
+) -> torch.Tensor:
+    """
+    Estimate BCEWithLogitsLoss pos_weight from training manifests.
+ 
+    pos_weight = n_background_pixels / n_fire_pixels
+ 
+    Scans up to `max_samples` training manifests (reading only the JSON,
+    not the raster) using the stored n_active_pixels field. Returns a
+    scalar tensor suitable for passing to BCEWithLogitsLoss(pos_weight=...).
+ 
+    Args:
+        bucket_name: GCS bucket name
+        branch: 'landsat' or 'viirs'
+        split_ids: set of training sample IDs (from load_split_ids)
+        output_prefix: GCS prefix
+        max_samples: cap on manifests to scan (for speed)
+ 
+    Returns:
+        torch.Tensor scalar, e.g. tensor([5000.]) for 0.02% fire pixels
+    """
+    bucket  = storage.Client().bucket(bucket_name)
+    prefix  = f"{output_prefix}/{branch}_pairs/manifest/"
+    blobs   = list(bucket.list_blobs(prefix=prefix))
+ 
+    if branch == "landsat":
+        total_pixels = 256 * 256
+        count_field  = "n_active_pixels"
+    else:
+        total_pixels = 20 * 20
+        count_field  = "n_detections"
+ 
+    total_fire = 0
+    total_bg   = 0
+    scanned    = 0
+ 
+    for blob in blobs:
+        if scanned >= max_samples:
+            break
+        if not blob.name.endswith(".json"):
+            continue
+        try:
+            m   = json.loads(blob.download_as_text())
+            sid = m.get("id", "")
+            if sid not in split_ids:
+                continue
+            n_fire    = int(m.get(count_field) or 1)
+            n_bg      = total_pixels - n_fire
+            total_fire += n_fire
+            total_bg   += max(n_bg, 0)
+            scanned    += 1
+        except Exception:
+            continue
+ 
+    if total_fire == 0:
+        print("[compute_pos_weight] Warning: no fire pixels found; defaulting to 100.")
+        return torch.tensor([100.0])
+ 
+    pos_weight = total_bg / total_fire
+    print(f"[compute_pos_weight] Scanned {scanned} training manifests → "
+          f"fire px: {total_fire:,}, bg px: {total_bg:,}, "
+          f"pos_weight: {pos_weight:.1f}")
+    return torch.tensor([pos_weight], dtype=torch.float32)

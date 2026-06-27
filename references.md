@@ -84,3 +84,20 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 18/06/2026
     * **Scope:** Generate test script `tests/test_dataset.py` to test the dataset that's downloaded in GCP.
     * **Prompt:** (pasting existing data pipeline) "Generate a test script to verify the data stored using this pipeline."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 20/06/2026
+    * **Scope:** Edit `src/data/wildfire_dataset.py` to handle data splitting by reading a file with designated splits and the new changes with GOEs context ratio = 1. The script returns a (5, H, W) data that is ready to run into model. The new edit also adds a helper function `compute_pos_weight()` to return a tensor to use for BCEWithLogitsLoss.
+    * **Prompt:** (pasting existing wildfire_dataset) "Edit the script so that it handles data splitting, including a helper function that scans the training split manifests to estimate the ratio of background to fire pixels, returning a scalar tensor for use in BCEWithLogitsLoss."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 25/06/2026
+    * **Scope:** Modify the original HAUNet (`src/models/haunet/haunet.py`) to fit the requirements for the wildfire downscaling model.
+    * **Prompt:** (pasting the original HAUNet model) "Make edits to this to fit with my wildfire downscaling task (input GOES+covariates -> VIIRS or Landsat). This includes removing the residual learning, accepting more input channels (5), outputting 1 channel."
+    * **Human Modification:** Change up_scale from 4 to 1, as spatial upscaling will occur before the network.
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 26/06/2026
+    * **Scope:** Modify the original HAUNet (`src/models/haunet/haunet.py`) to fit the requirements for the wildfire downscaling model.
+    * **Prompt:** (pasting the original HAUNet model) "Make edits to this to fit with my wildfire downscaling task (input GOES+covariates -> VIIRS or Landsat). This includes removing the residual learning, accepting more input channels (5), outputting 1 channel."
+    * **Human Modification:** Change up_scale from 4 to 1, as spatial upscaling will occur before the network.
