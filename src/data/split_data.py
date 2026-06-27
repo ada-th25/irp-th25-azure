@@ -91,3 +91,65 @@ def stratified_split(
           f"val={len(val_ids)} / test={len(test_ids)}")
 
     return train_ids, val_ids, test_ids
+
+
+def write_split(bucket, branch: str, split_name: str, ids: list[str]) -> None:
+    path = f"{OUTPUT_PREFIX}/splits/{branch}/{split_name}.txt"
+    content = "\n".join(sorted(ids))
+    bucket.blob(path).upload_from_string(content, content_type="text/plain")
+    print(f"  Written {len(ids):4d} IDs → gs://{bucket.name}/{path}")
+
+
+def split_exists(bucket, branch: str) -> bool:
+    return bucket.blob(
+        f"{OUTPUT_PREFIX}/splits/{branch}/train.txt"
+    ).exists()
+
+
+def run_branch(bucket, branch: str, overwrite: bool) -> None:
+    print(f"\n{'='*60}")
+    print(f"Branch: {branch}")
+    print(f"{'='*60}")
+
+    if split_exists(bucket, branch) and not overwrite:
+        print(f"  Splits already exist for '{branch}'. "
+              f"Use --overwrite to regenerate.")
+        return
+
+    manifests = load_manifests(bucket, branch)
+    if not manifests:
+        print(f"  [SKIP] No manifests found for branch '{branch}'.")
+        return
+
+    # Extract IDs and fire pixel counts from manifests
+    # Both landsat (n_active_pixels) and viirs (n_detections) branches
+    # store a meaningful activity count, use whichever is present.
+    sample_ids = []
+    pixel_counts = []
+    for m in manifests:
+        sid = m.get("id")
+        count = m.get("n_active_pixels") or m.get("n_detections") or 1
+        if sid:
+            sample_ids.append(sid)
+            pixel_counts.append(int(count))
+
+    print(f"  Total samples: {len(sample_ids)}")
+    print(f"  Fire size — min: {min(pixel_counts)}, "
+          f"median: {int(np.median(pixel_counts))}, "
+          f"max: {max(pixel_counts)}")
+    print(f"  Stratifying into {N_STRATA} fire-size bins...")
+
+    train_ids, val_ids, test_ids = stratified_split(
+        sample_ids, pixel_counts,
+        TRAIN_RATIO, VAL_RATIO, N_STRATA, RANDOM_SEED
+    )
+
+    total = len(train_ids) + len(val_ids) + len(test_ids)
+    print(f"\n  Final split: train={len(train_ids)} / "
+          f"val={len(val_ids)} / test={len(test_ids)} "
+          f"(total={total})")
+
+    write_split(bucket, branch, "train", train_ids)
+    write_split(bucket, branch, "val",   val_ids)
+    write_split(bucket, branch, "test",  test_ids)
+    print(f"  Done.")
