@@ -134,11 +134,6 @@ class WildfireDataset(Dataset):
             if np.all(data == 0):
                 return False
     
-            # >5% exact zeros indicates scan-line dropout (GOES-17 LHP anomaly
-            # or Full Disk resampling artefact)
-            if (data == 0).mean() > 0.05:
-                return False
-    
         except Exception:
             return False
         return True
@@ -227,7 +222,6 @@ class WildfireDataset(Dataset):
         cov    = self._read_gcs_raster(paths["covariates"])
     
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
-        # This is the raw GOES returned in the sample dict for diagnostics.
         goes = F.interpolate(
             goes.unsqueeze(0),
             size=self.goes_size,        # (15, 15)
@@ -254,7 +248,6 @@ class WildfireDataset(Dataset):
             ).squeeze(0)                # (2, 256, 256) or (2, 20, 20)
     
         # Snap target to canonical size (GEE snapping can produce ±1px).
-        # Nearest preserves binary labels, no interpolated intermediate values.
         if target.shape[-2:] != self.target_size:
             target = F.interpolate(
                 target.unsqueeze(0),

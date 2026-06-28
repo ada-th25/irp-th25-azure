@@ -130,4 +130,4 @@ This file contains references and AI disclosures specific to the codebase in thi
 * **Tool:** Anthropic Claude (Sonnet 4.6)
     * **Date Used:** 28/06/2026
     * **Scope:** Generate test script (`tests/test_wildfire_dataset`) to test `wildfire_dataset` pipeline.
-    * **Prompt:** (pasting code in wildfire_dataset) "Generate a test script to test whether the data processed using this scrip is correct."
+    * **Prompt:** (pasting code in wildfire_dataset) "Generate a test script to test whether the data processed is correct, including shape checking, checking for zeros etc."
