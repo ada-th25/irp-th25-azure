@@ -416,7 +416,8 @@ class TestFilterComplete:
 class TestIntegrationLandsat:
  
     @pytest.fixture(scope="class")
-    def ds(self):
+    @classmethod
+    def ds(cls):
         return WildfireDataset(
             bucket_name=BUCKET_NAME,
             output_prefix=OUTPUT_PREFIX,
@@ -444,18 +445,34 @@ class TestIntegrationLandsat:
  
     def test_goes_values_are_plausible(self, ds):
         for i in range(min(5, len(ds))):
-            goes    = ds[i]["goes"]
-            nonzero = goes[goes != 0]
+            goes = ds[i]["goes"]
+            # Channel 0 = C07 (3.9µm BT), Channel 1 = C14 (11.2µm BT)
+            # Channel 2 = TFI (C07 - C14), different value range
+            bt_channels = goes[:2]   # (2, 15, 15)
+            nonzero = bt_channels[bt_channels != 0]
             if nonzero.numel() > 0:
-                assert nonzero.min() >= 150, f"Sample {i}: GOES BT below 150 K"
-                assert nonzero.max() <= 400, f"Sample {i}: GOES BT above 400 K"
+                assert nonzero.min() >= 150, \
+                    f"Sample {i}: BT channel below 150 K ({nonzero.min():.1f})"
+                assert nonzero.max() <= 400, \
+                    f"Sample {i}: BT channel above 400 K ({nonzero.max():.1f})"
+    
+            # TFI (C07 - C14) should be small, large negative values or
+            # values above ~50 K difference would indicate a calibration issue
+            tfi = goes[2]
+            nonzero_tfi = tfi[tfi != 0]
+            if nonzero_tfi.numel() > 0:
+                assert nonzero_tfi.min() >= -50, \
+                    f"Sample {i}: TFI below -50 K ({nonzero_tfi.min():.1f})"
+                assert nonzero_tfi.max() <= 50, \
+                    f"Sample {i}: TFI above 50 K ({nonzero_tfi.max():.1f})"
  
  
 @pytest.mark.integration
 class TestIntegrationVIIRS:
  
     @pytest.fixture(scope="class")
-    def ds(self):
+    @classmethod
+    def ds(cls):
         return WildfireDataset(
             bucket_name=BUCKET_NAME,
             output_prefix=OUTPUT_PREFIX,
