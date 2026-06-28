@@ -10,6 +10,20 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Paper:** J. Wang, B. Wang, X. Wang, Y. Zhao and T. Long, "Hybrid Attention-Based U-Shaped Network for Remote Sensing Image Super-Resolution," in IEEE Transactions on Geoscience and Remote Sensing, vol. 61, pp. 1-15, 2023, Art no. 5612515, doi: 10.1109/TGRS.2023.3283769.
     * **Usage:** Used their `codes/model/haunet.py` to build the core HAUNet architecture.
 
+# Packages & Dependencies
+
+* **NumPy**
+    * **Version/Date:** v2.4 / 08/06/2026
+    * **Repository:** https://github.com/numpy/numpy
+    * **Paper/Documentation:** C. R. Harris *et al.*, "Array programming with NumPy," *Nature*, vol. 585, no. 7825, pp. 357–362, Sep. 2020, doi: 10.1038/s41586-020-2649-2.
+    * **Usage:** Multidimensional array manipulations and structural data transformations.
+
+* **scikit-learn**
+    * **Version/Date:** v1.3 / 27/06/2026
+    * **Repository:** https://github.com/scikit-learn/scikit-learn
+    * **Paper/Documentation:** F. Pedregosa *et al.*, "Scikit-learn: Machine Learning in Python," *Journal of Machine Learning Research*, vol. 12, pp. 2825-2830, 2011.
+    * **Usage:** Used for evaluation metrics, dataset splitting, or specific data preprocessing pipelines.
+
 # AI Usage
 
 * **Tool:** Anthropic Claude (Sonnet 4.6)
@@ -107,3 +121,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generate function for data splitting (`src/data/split_data.py`) where it assigns each data to percentile bins based on number of active fire pixels. This assignent is used to ensure the split produces balanced dataset.
     * **Prompt:** (pasting the existing code for wildfire_dataset and dataset) "Write a function that splits the data id into trining/test/val, where the data is assigned into quartile bins based on number of active fire pixels for a balanced dataset. Then split the data according to the bins for balanced dataset."
     * **Human Modification:** Modified to use sklearn's StratifiedShuffleSplit after assigning bin categories.
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 27/06/2026
+    * **Scope:** Generate `main()` for `src/data/split_data.py` to implement argument parser to handle splits for viirs or landsat or both.
+    * **Prompt:** (pasting existing code in the script) "Generate def main() function that takes either viirs, landsat or both as argument to run different splitting, and another argument for overwriting to regenrate the split."

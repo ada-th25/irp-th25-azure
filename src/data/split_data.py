@@ -97,7 +97,7 @@ def write_split(bucket, branch: str, split_name: str, ids: list[str]) -> None:
     path = f"{OUTPUT_PREFIX}/splits/{branch}/{split_name}.txt"
     content = "\n".join(sorted(ids))
     bucket.blob(path).upload_from_string(content, content_type="text/plain")
-    print(f"  Written {len(ids):4d} IDs → gs://{bucket.name}/{path}")
+    print(f"  Written {len(ids):4d} IDs -> gs://{bucket.name}/{path}")
 
 
 def split_exists(bucket, branch: str) -> bool:
@@ -153,3 +153,26 @@ def run_branch(bucket, branch: str, overwrite: bool) -> None:
     write_split(bucket, branch, "val",   val_ids)
     write_split(bucket, branch, "test",  test_ids)
     print(f"  Done.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Create stratified data splits.")
+    parser.add_argument("--branch",    choices=["landsat", "viirs", "both"],
+                        default="both")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Regenerate splits even if they already exist.")
+    args = parser.parse_args()
+
+    credentials, _ = default()
+    bucket = storage.Client(credentials=credentials).bucket(BUCKET_NAME)
+
+    branches = (["landsat", "viirs"] if args.branch == "both"
+                else [args.branch])
+
+    for branch in branches:
+        run_branch(bucket, branch, args.overwrite)
+
+    print("\nSplits complete.")
+
+
+if __name__ == "__main__":
+    main()
