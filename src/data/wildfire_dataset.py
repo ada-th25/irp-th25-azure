@@ -76,10 +76,12 @@ class WildfireDataset(Dataset):
 
         if branch == "landsat":
             self.target_size = (256, 256)
-            self.cov_size    = (256, 256)
+            self.cov_size = (256, 256)
+            self.goes_size = (15, 15)
         else:  # viirs
             self.target_size = (20, 20)
-            self.cov_size    = (20, 20)
+            self.cov_size = (20, 20)
+            self.goes_size = (15, 15)
 
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
         raw_samples = []
@@ -221,6 +223,14 @@ class WildfireDataset(Dataset):
         target = self._read_gcs_raster(paths["target"])
         goes   = self._read_gcs_raster(paths["goes_input"])
         cov    = self._read_gcs_raster(paths["covariates"])
+
+        # GOES: snap to canonical goes_size first (handles ±1px GEE snapping).
+        goes = F.interpolate(
+            goes.unsqueeze(0),
+            size=self.goes_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(0)   # (3, 15, 15)
 
         # GOES: bilinear snap to canonical size (handles ±1px GEE snapping)
         goes = F.interpolate(

@@ -126,3 +126,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 27/06/2026
     * **Scope:** Generate `main()` for `src/data/split_data.py` to implement argument parser to handle splits for viirs or landsat or both.
     * **Prompt:** (pasting existing code in the script) "Generate def main() function that takes either viirs, landsat or both as argument to run different splitting, and another argument for overwriting to regenrate the split."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 28/06/2026
+    * **Scope:** Generate test script (`tests/test_wildfire_dataset`) to test `wildfire_dataset` pipeline.
+    * **Prompt:** (pasting code in wildfire_dataset) "Generate a test script to test whether the data processed using this scrip is correct."
