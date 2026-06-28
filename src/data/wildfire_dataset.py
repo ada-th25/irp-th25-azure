@@ -117,10 +117,6 @@ class WildfireDataset(Dataset):
         return self.bucket.blob(gcs_path).exists()
 
     def _goes_is_valid(self, gcs_path):
-        """
-        Returns False if the GOES file is missing, unreadable, or
-        entirely zero/masked across all bands (failed GEE export).
-        """
         blob = self.bucket.blob(gcs_path)
         if not blob.exists():
             return False
@@ -128,15 +124,21 @@ class WildfireDataset(Dataset):
             raw = blob.download_as_bytes()
             with rasterio.MemoryFile(raw) as mf:
                 with mf.open() as src:
-                    data = src.read().astype(np.float32)
+                    data   = src.read().astype(np.float32)
                     nodata = src.nodata
-            # Treat nodata-filled pixels as masked
             if nodata is not None:
                 data[data == nodata] = 0.0
             data[~np.isfinite(data)] = 0.0
-            # All bands all-zero → masked/empty export
+    
+            # All-zero -> failed GEE export
             if np.all(data == 0):
                 return False
+    
+            # >5% exact zeros indicates scan-line dropout (GOES-17 LHP anomaly
+            # or Full Disk resampling artefact)
+            if (data == 0).mean() > 0.05:
+                return False
+    
         except Exception:
             return False
         return True
@@ -150,7 +152,7 @@ class WildfireDataset(Dataset):
             goes_path   = paths.get("goes_input", "")
             cov_path    = paths.get("covariates", "")
 
-            # 1. All three paths must exist in GCS
+            # All three paths must exist in GCS
             if not all([
                 self._blob_exists(target_path),
                 self._blob_exists(cov_path),
@@ -158,12 +160,12 @@ class WildfireDataset(Dataset):
                 dropped += 1
                 continue
 
-            # 2. GOES must exist and not be all-masked
+            # GOES must exist and not be all-masked
             if not self._goes_is_valid(goes_path):
                 dropped += 1
                 continue
 
-            # 3. Target must have at least 1 non-zero pixel
+            # Target must have at least 1 non-zero pixel
             try:
                 raw = self.bucket.blob(target_path).download_as_bytes()
                 with rasterio.MemoryFile(raw) as mf:
@@ -219,54 +221,55 @@ class WildfireDataset(Dataset):
     def __getitem__(self, idx):
         manifest = self.samples[idx]
         paths    = manifest["paths"]
-
+    
         target = self._read_gcs_raster(paths["target"])
         goes   = self._read_gcs_raster(paths["goes_input"])
         cov    = self._read_gcs_raster(paths["covariates"])
-
-        # GOES: snap to canonical goes_size first (handles ±1px GEE snapping).
+    
+        # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
+        # This is the raw GOES returned in the sample dict for diagnostics.
         goes = F.interpolate(
             goes.unsqueeze(0),
-            size=self.goes_size,
+            size=self.goes_size,        # (15, 15)
             mode="bilinear",
             align_corners=False,
-        ).squeeze(0)   # (3, 15, 15)
-
-        # GOES: bilinear snap to canonical size (handles ±1px GEE snapping)
-        goes = F.interpolate(
+        ).squeeze(0)                    # (3, 15, 15)
+    
+        # Upsample GOES separately for concatenation with covariates.
+        # goes stays (3, 15, 15); goes_up is (3, 256, 256) or (3, 20, 20).
+        goes_up = F.interpolate(
             goes.unsqueeze(0),
-            size=self.target_size,
+            size=self.target_size,      # (256, 256) or (20, 20)
             mode="bilinear",
             align_corners=False,
-        ).squeeze(0)   # (3, 256, 256) or (3, 20, 20)
-
-        # Snap covariates to target size (handles ±1-2px GEE grid snapping)
-        if cov.shape[-2:] != self.target_size:
+        ).squeeze(0)
+    
+        # Snap covariates to target size (handles ±1-2px GEE grid snapping).
+        if cov.shape[-2:] != self.cov_size:
             cov = F.interpolate(
                 cov.unsqueeze(0),
                 size=self.cov_size,
                 mode="bilinear",
                 align_corners=False,
-            ).squeeze(0)   # (2, 256, 256) or (2, 20, 20)
-
-        # Snap target (Landsat only, Pereira et al. patches should be exactly 256x256
-        # but GEE snapping can produce ±1px)
+            ).squeeze(0)                # (2, 256, 256) or (2, 20, 20)
+    
+        # Snap target to canonical size (GEE snapping can produce ±1px).
+        # Nearest preserves binary labels, no interpolated intermediate values.
         if target.shape[-2:] != self.target_size:
             target = F.interpolate(
                 target.unsqueeze(0),
                 size=self.target_size,
                 mode="nearest",
-            ).squeeze(0)   # (1, 256, 256) nearest preserves binary labels
-
-        # Concatenate GOES and covariates into a single input tensor.
-        # (5, 256, 256) = 3 GOES channels + 2 covariate channels.
-        inp = torch.cat([goes, cov], dim=0)   # (5, H, W)
-
+            ).squeeze(0)                # (1, 256, 256) or (1, 20, 20)
+    
+        # Concatenate upsampled GOES with covariates into the model input tensor.
+        inp = torch.cat([goes_up, cov], dim=0)   # (5, 256, 256) or (5, 20, 20)
+    
         return {
-            "input":      inp,
-            "target":     target,
-            "goes":       goes,
-            "covariates": cov,
+            "input":      inp,       # (5, H, W) model input
+            "target":     target,    # (1, H, W) fire mask
+            "goes":       goes,      # (3, 15, 15) raw GOES, for diagnostics
+            "covariates": cov,       # (2, H, W) DEM + land cover
             "sample_id":  manifest["id"],
             "date":       manifest["date"],
         }
