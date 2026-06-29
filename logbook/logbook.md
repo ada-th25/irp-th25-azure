@@ -85,3 +85,19 @@
 - **Work Plan Before Next Meeting:**
     - Create a exploratory notebook exploring the sparsity of the data.
     - Check which machine to use for running the pipeline.
+
+### Catch-up Email to Main Supervisor (29 Jun 2026)
+- **People:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Discussed the progress up to date, including on wildfire_dataset implementation, data split, and HAUNet implementation.
+    - Raised point on whether to use GOES data with greater physical extent (greater number of pixels) or GOES data without (smaller image).
+    - Received feedback on loss functions, and possible implementation of progressive frames rather than just static snapshots.
+    - More will be discussed on Wednesday before emailing Anna (second supervisor) about next meeting.
+- **Feedback:**
+    - Use GOES data with greater physical extent.
+    - Can consider using past GOES data rather than static snapshots if the GOES context extent option does not work.
+    - Consider using focal loss or dice loss over BCEWithLogitsLoss due to severe class imbalance.
+- **Work Plan Before Next Meeting:**
+    - Look into other loss function to handle class imbalance.
+    - Start building the training script.
+    - Look into the feasibility of using dynamic snapshots over static ones.
