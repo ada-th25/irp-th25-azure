@@ -18,11 +18,24 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Paper/Documentation:** C. R. Harris *et al.*, "Array programming with NumPy," *Nature*, vol. 585, no. 7825, pp. 357–362, Sep. 2020, doi: 10.1038/s41586-020-2649-2.
     * **Usage:** Multidimensional array manipulations and structural data transformations.
 
+* **PyTorch**
+    * **Version/Date:** v2.12 / 23/06/2026
+    * **Repository:** https://github.com/pytorch/pytorch
+    * **Usage:** Core deep learning framework for building, training, and executing neural network architectures.
+
 * **scikit-learn**
     * **Version/Date:** v1.3 / 27/06/2026
     * **Repository:** https://github.com/scikit-learn/scikit-learn
     * **Paper/Documentation:** F. Pedregosa *et al.*, "Scikit-learn: Machine Learning in Python," *Journal of Machine Learning Research*, vol. 12, pp. 2825-2830, 2011.
     * **Usage:** Used for evaluation metrics, dataset splitting, or specific data preprocessing pipelines.
+
+# Online Resources
+
+* **Medium**
+    * **Date Used:** 03/06/2026
+    * **URL:** https://medium.com/data-scientists-diary/implementing-focal-loss-in-pytorch-for-class-imbalance-24d8aa3b59d9
+    * **Author/Organisation:** Amit Yadav
+    * **Usage:** Used their implementation of focal and dice loss.
 
 # AI Usage
 
@@ -136,3 +149,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 28/06/2026
     * **Scope:** Generate test script (`tests/test_splits`) to test if splitting in `split_dataset.py` is done correctly.
     * **Prompt:** (pasting code in split_dataset) "Generate a test script to test whether the data split is correct."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 30/06/2026
+    * **Scope:** Generate `losses.py` where it contains loss calculations for focal loss, dice loss and weighted sum of both.
+    * **Prompt:** "Given the model is trained on raster images, generate a script that contains classes with the following losses: Focal loss, dice loss, and focal dice loss (weighted sum of both losses)."

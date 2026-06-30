@@ -9,7 +9,7 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 ## Repository Structure
 
 ```text
-├── deliverables/               # Official project milestones and documentation
+├── deliverables/               # Project plan and report
 │   ├── project_plan.pdf        # Initial project scope and timeline
 │   └── final_report.pdf        # Completed IRP final report
 ├── environment.yml             # Conda environment definition with required dependencies
