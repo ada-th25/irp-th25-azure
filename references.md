@@ -164,5 +164,5 @@ This file contains references and AI disclosures specific to the codebase in thi
 * **Tool:** Anthropic Claude (Sonnet 4.6)
     * **Date Used:** 01/07/2026
     * **Scope:** Generate training script to run model training (`train.py`).
-    * **Prompt:** (pasting existing HAUNet model) "Generate a training script that trains the model, and logs the metrics calculated during training."
+    * **Prompt:** (pasting existing HAUNet model) "Generate a training script that trains the model, and logs the metrics calculated during training. Include W&B logging"
     * **Human Modification:** Edit the script to integrate my current metrics script.

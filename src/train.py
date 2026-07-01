@@ -144,3 +144,104 @@ def validate(
         "val_ipsnr": total_ipsnr / max(n_ipsnr, 1),
         "val_boundary_f1": total_bf1 / n_batches,
     }
+
+# ------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------
+ 
+def main():
+    parser = argparse.ArgumentParser(description="Train wildfire SR model.")
+    parser.add_argument("--config",   required=True,
+                        help="Path to experiment YAML config.")
+    parser.add_argument("--resume",   default=None,
+                        help="Path to checkpoint .pt file to resume from.")
+    parser.add_argument("--no-wandb", action="store_true",
+                        help="Disable W&B logging (use CSV only).")
+    args = parser.parse_args()
+ 
+    # ------------------------------------------------------------------
+    # Load Config
+    # ------------------------------------------------------------------
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+ 
+    exp_name = cfg["experiment"]["name"]
+    branch = cfg["experiment"]["branch"]
+    bucket_name = cfg["data"]["bucket_name"]
+    prefix = cfg["data"]["output_prefix"]
+ 
+    print(f"\n{'='*60}")
+    print(f"Experiment : {exp_name}")
+    print(f"Branch     : {branch}")
+    print(f"Config     : {args.config}")
+    print(f"{'='*60}\n")
+ 
+    # ------------------------------------------------------------------
+    # Device
+    # ------------------------------------------------------------------
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    if device.type == "cuda":
+        print(f"  GPU: {torch.cuda.get_device_name(0)}")
+        print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+ 
+    # ------------------------------------------------------------------
+    # Directories
+    # ------------------------------------------------------------------
+    ckpt_dir = Path(cfg["checkpointing"]["checkpoint_dir"]) / exp_name
+    log_dir = Path(cfg["logging"]["log_dir"])
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True,  exist_ok=True)
+ 
+    # ------------------------------------------------------------------
+    # Weights & Biases (W&B) logging
+    # ------------------------------------------------------------------
+    use_wandb = cfg["logging"]["use_wandb"] and not args.no_wandb
+    if use_wandb:
+        try:
+            import wandb
+            wandb.init(
+                project = cfg["logging"]["wandb_project"],
+                entity = cfg["logging"].get("wandb_entity"),
+                name = exp_name,
+                config = cfg,
+                resume = "allow",
+            )
+            print("W&B initialised.")
+        except ImportError:
+            print("[WARN] wandb not installed. Falling back to CSV logging.")
+            print("       Install with: pip install wandb --break-system-packages")
+            use_wandb = False
+ 
+    csv_logger = CSVLogger(str(log_dir / f"{exp_name}.csv"))
+ 
+    # ------------------------------------------------------------------
+    # Data Splits
+    # ------------------------------------------------------------------
+    print("\nLoading data splits from GCS...")
+    train_ids = load_split_ids(bucket_name, branch, "train", prefix)
+    val_ids = load_split_ids(bucket_name, branch, "val",   prefix)
+ 
+    # ------------------------------------------------------------------
+    # Datasets and Loaders
+    # ------------------------------------------------------------------
+    print("\nBuilding datasets...")
+    train_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=train_ids)
+    val_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=val_ids)
+ 
+    train_loader = DataLoader(
+        train_ds,
+        batch_size = cfg["training"]["batch_size"],
+        shuffle = True,
+        num_workers = cfg["data"]["num_workers"],
+        pin_memory = (device.type == "cuda"),
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size = cfg["training"]["batch_size"],
+        shuffle = False,
+        num_workers = cfg["data"]["num_workers"],
+        pin_memory = (device.type == "cuda"),
+    )
+    print(f"  Train: {len(train_ds)} samples / {len(train_loader)} batches")
+    print(f"  Val  : {len(val_ds)}   samples / {len(val_loader)}   batches")
