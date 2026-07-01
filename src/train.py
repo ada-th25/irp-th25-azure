@@ -16,7 +16,7 @@ from google.auth import default
 
 # Local modules
 sys.path.append(str(Path(__file__).parent))
-from data.wildfire_dataset import WildfireDataset, load_split_ids, compute_pos_weight
+from data.wildfire_dataset import WildfireDataset, load_split_ids
 from models.haunet.haunet import make_model
 from metrics import compute_iou, compute_ipsnr, compute_boundary_f1
 from losses import build_loss
@@ -253,7 +253,7 @@ def main():
     print("\nBuilding model...")
     model = make_model(
         goes_channels = cfg["data"]["goes_channels"],
-        cov_channels  = cfg["data"]["cov_channels"],
+        cov_channels = cfg["data"]["cov_channels"],
     ).to(device)
  
     n_params = sum(p.numel() for p in model.parameters())
@@ -266,14 +266,14 @@ def main():
  
     optimiser = torch.optim.AdamW(
         model.parameters(),
-        lr           = cfg["training"]["learning_rate"],
+        lr = cfg["training"]["learning_rate"],
         weight_decay = cfg["training"]["weight_decay"],
     )
  
-    n_epochs   = cfg["training"]["epochs"]
-    scheduler  = torch.optim.lr_scheduler.CosineAnnealingLR(
+    n_epochs = cfg["training"]["epochs"]
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimiser,
-        T_max  = n_epochs,
+        T_max = n_epochs,
         eta_min = cfg["training"]["min_lr"],
     )
 
@@ -297,5 +297,78 @@ def main():
         optimiser.load_state_dict(ckpt["optimiser"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
-        best_iou    = ckpt.get("best_iou", 0.0)
+        best_iou = ckpt.get("best_iou", 0.0)
         print(f"  Resumed at epoch {start_epoch}, best_iou={best_iou:.4f}")
+
+    # ------------------------------------------------------------------
+    # Training Loop
+    # ------------------------------------------------------------------
+    val_every = cfg["training"]["val_every_n_epochs"]
+    save_every = cfg["training"]["save_every_n_epochs"]
+    keep_last = cfg["checkpointing"]["keep_last_n"]
+ 
+    print(f"\nStarting training for {n_epochs} epochs "
+          f"(val every {val_every}, save every {save_every})...\n")
+ 
+    for epoch in range(start_epoch, n_epochs + 1):
+        t0 = time.time()
+ 
+        # ------------------------------------------------------------------
+        # Train
+        # ------------------------------------------------------------------
+        train_loss = train_one_epoch(
+            model, train_loader, optimiser, criterion, device,
+            grad_clip=cfg["training"]["grad_clip"],
+            epoch=epoch,
+        )
+        scheduler.step()
+        lr_now = scheduler.get_last_lr()[0]
+ 
+        log_row = {
+            "epoch":      epoch,
+            "train_loss": train_loss,
+            "lr":         lr_now,
+        }
+
+        # ------------------------------------------------------------------
+        # Validate
+        # ------------------------------------------------------------------
+        if epoch % val_every == 0 or epoch == n_epochs:
+            print(f"\n  [Epoch {epoch}] Running validation...", flush=True)
+            val_metrics = validate(model, val_loader, criterion, device)
+            log_row.update(val_metrics)
+ 
+            is_best = val_metrics["val_iou"] > best_iou
+            if is_best:
+                best_iou = val_metrics["val_iou"]
+                best_path = str(ckpt_dir / "best.pt")
+                torch.save({
+                    "epoch":     epoch,
+                    "model":     model.state_dict(),
+                    "optimiser": optimiser.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "best_iou":  best_iou,
+                    "config":    cfg,
+                }, best_path)
+                upload_checkpoint(gcs_bucket, best_path, gcs_ckpt_prefix)
+                print(f"  ★ New best val_iou={best_iou:.4f} — saved best.pt")
+ 
+            print(
+                f"  [Epoch {epoch:3d}] "
+                f"train_loss={train_loss:.4f} | "
+                f"val_loss={val_metrics['val_loss']:.4f} | "
+                f"val_iou={val_metrics['val_iou']:.4f} | "
+                f"val_ipsnr={val_metrics['val_ipsnr']:.2f} dB | "
+                f"val_bf1={val_metrics['val_boundary_f1']:.4f} | "
+                f"lr={lr_now:.2e} | "
+                f"time={time.time()-t0:.0f}s",
+                flush=True,
+            )
+        else:
+            print(
+                f"  [Epoch {epoch:3d}] "
+                f"train_loss={train_loss:.4f} | "
+                f"lr={lr_now:.2e} | "
+                f"time={time.time()-t0:.0f}s",
+                flush=True,
+            )
