@@ -37,7 +37,7 @@ bucket = storage_client.bucket(BUCKET_NAME)
 # ==========================================
 # Output Prefix
 # ==========================================
-OUTPUT_PREFIX = "processed_dataset"
+OUTPUT_PREFIX = "processed_dataset_r1"
 
 print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/"))
@@ -47,7 +47,7 @@ existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/
 # ==========================================
 AMERICAS_LON_BOUNDS = [-170.0, -30.0]
 VIIRS_POOL_BUFFER_DEG = 2.0
-VIIRS_DATE_RANGE = ("2020-08-01", "2020-09-30")
+VIIRS_DATE_RANGE = ("2020-01-01", "2020-12-31")
 
 # ==========================================
 # Resolution / Extent Constants
@@ -91,8 +91,8 @@ COVARIATE_STACK = DEM_ASSET.unmask(0).addBands(LC_ASSET.unmask(0).toFloat())
 # ==========================================
 # NASA VIIRS Archive: Load + Filter
 # ==========================================
-VIIRS_CSV_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"
-VIIRS_CSV_GCS_PATH = "raw-viirs/viirs_snpp_fire_archive_americas_2020aug_sep.csv"  # path inside the bucket
+VIIRS_CSV_PATH = "raw_viirs/viirs_snpp_fire_archive_americas_2020jan_dec.csv"
+VIIRS_CSV_GCS_PATH = "raw_viirs/viirs_snpp_fire_archive_americas_2020jan_dec.csv"  # path inside the bucket
 
 print(f"Downloading VIIRS archive CSV from GCS: gs://{BUCKET_NAME}/{VIIRS_CSV_GCS_PATH} ...")
 viirs_blob = bucket.blob(VIIRS_CSV_GCS_PATH)
@@ -125,7 +125,7 @@ else:
 df_viirs = df_viirs[
     (df_viirs['acq_date'] >= VIIRS_DATE_RANGE[0]) & (df_viirs['acq_date'] <= VIIRS_DATE_RANGE[1])
 ]
-print(f"VIIRS branch pool after Aug-Sep-2020 filtering: {len(df_viirs)} detections.")
+print(f"VIIRS branch pool after Jan-Dec-2020 filtering: {len(df_viirs)} detections.")
 
 # ==========================================
 # Core Utilities
