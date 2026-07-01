@@ -32,7 +32,7 @@ This file contains references and AI disclosures specific to the codebase in thi
 # Online Resources
 
 * **Medium**
-    * **Date Used:** 03/06/2026
+    * **Date Used:** 30/06/2026
     * **URL:** https://medium.com/data-scientists-diary/implementing-focal-loss-in-pytorch-for-class-imbalance-24d8aa3b59d9
     * **Author/Organisation:** Amit Yadav
     * **Usage:** Used their implementation of focal and dice loss.
@@ -154,3 +154,15 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 30/06/2026
     * **Scope:** Generate `losses.py` where it contains loss calculations for focal loss, dice loss and weighted sum of both.
     * **Prompt:** "Given the model is trained on raster images, generate a script that contains classes with the following losses: Focal loss, dice loss, and focal dice loss (weighted sum of both losses)."
+    * **Human Modification:** Modified alpha (0.75) for focal loss to give more weights to active pixels over the background.
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 30/06/2026
+    * **Scope:** Generate script that calculates evaluation metrics, including the IOU, IPSNR, F1, and precision and recall (`metrics.py`).
+    * **Prompt:** "Generate a metrics script that takes target and output fire mask image, and computes the IOU, IPSNR, F1 and precision and recall."
+
+* **Tool:** Anthropic Claude (Sonnet 4.6)
+    * **Date Used:** 01/07/2026
+    * **Scope:** Generate training script to run model training (`train.py`).
+    * **Prompt:** (pasting existing HAUNet model) "Generate a training script that trains the model, and logs the metrics calculated during training."
+    * **Human Modification:** Edit the script to integrate my current metrics script.

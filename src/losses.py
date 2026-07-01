@@ -17,11 +17,11 @@ class FocalLoss(nn.Module):
 
     Args:
         alpha  (float): Balancing factor for the positive class.
-                        Typical range 0.25–0.75; increase toward 1.0 for
+                        Typical range 0.25-0.75; increase toward 1.0 for
                         very sparse fire patches.
         gamma  (float): Focusing exponent. gamma=0 recovers weighted BCE.
                         gamma=2 is the standard recommendation; increase to
-                        3–4 if the model still ignores fire pixels.
+                        3-4 if the model still ignores fire pixels.
         reduction (str): 'mean' | 'sum' | 'none'
     """
 
