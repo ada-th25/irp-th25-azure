@@ -101,3 +101,18 @@
     - Look into other loss function to handle class imbalance.
     - Start building the training script.
     - Look into the feasibility of using dynamic snapshots over static ones.
+
+### Meeting with Main Supervisor (01 Jul 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Discussed the problem with lack of data for Landsat target.
+    - Discussed what the main focus should be for now.
+- **Feedback:**
+    - Look into other Landsat datasets that may potentially contain more data (e.g. Landsat Collection 2 Level-3 Burned Area Science Product).
+    - Generate more GOES/VIIRS pairs to get about 10,000 images.
+    - Work on training the GOES->VIIRS pipeline first.
+- **Work Plan Before Next Meeting:**
+    - Finish generating the training script.
+    - Obtain more VIIRS data by increasing the temporal extent of the dataset.
+    - Start training the first model (HAUNet) on the VIIRs dataset.
+    - Look into the feasibility of using the suggested Landsat dataset as ground truth target.
