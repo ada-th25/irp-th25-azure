@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids, compute_pos_weight
 from models.haunet.haunet import make_model
 from metrics import compute_iou, compute_ipsnr, compute_boundary_f1
+from losses import build_loss
 
 
 # ------------------------------------------------------------------
@@ -245,3 +246,56 @@ def main():
     )
     print(f"  Train: {len(train_ds)} samples / {len(train_loader)} batches")
     print(f"  Val  : {len(val_ds)}   samples / {len(val_loader)}   batches")
+
+    # ------------------------------------------------------------------
+    # Model
+    # ------------------------------------------------------------------
+    print("\nBuilding model...")
+    model = make_model(
+        goes_channels = cfg["data"]["goes_channels"],
+        cov_channels  = cfg["data"]["cov_channels"],
+    ).to(device)
+ 
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"  HAUNet parameters: {n_params:,}")
+
+    # ------------------------------------------------------------------
+    # Loss, Optimiser, Scheduler
+    # ------------------------------------------------------------------
+    criterion = build_loss(cfg["loss"]).to(device)
+ 
+    optimiser = torch.optim.AdamW(
+        model.parameters(),
+        lr           = cfg["training"]["learning_rate"],
+        weight_decay = cfg["training"]["weight_decay"],
+    )
+ 
+    n_epochs   = cfg["training"]["epochs"]
+    scheduler  = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimiser,
+        T_max  = n_epochs,
+        eta_min = cfg["training"]["min_lr"],
+    )
+
+    # ------------------------------------------------------------------
+    # GCS client (for checkpoint upload)
+    # ------------------------------------------------------------------
+    credentials, _ = default()
+    gcs_bucket = storage.Client(credentials=credentials).bucket(bucket_name)
+    gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
+
+    # ------------------------------------------------------------------
+    # Resume
+    # ------------------------------------------------------------------
+    start_epoch = 1
+    best_iou    = 0.0
+ 
+    if args.resume:
+        print(f"\nResuming from {args.resume}...")
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model"])
+        optimiser.load_state_dict(ckpt["optimiser"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        start_epoch = ckpt["epoch"] + 1
+        best_iou    = ckpt.get("best_iou", 0.0)
+        print(f"  Resumed at epoch {start_epoch}, best_iou={best_iou:.4f}")

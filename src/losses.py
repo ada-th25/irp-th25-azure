@@ -142,7 +142,7 @@ class FocalDiceLoss(nn.Module):
         gamma: float = 2.0,
         focal_weight: float = 1.0,
         dice_weight: float = 1.0,
-        smooth: float = 1.0,
+        smooth: float = 0.1,
     ):
         super().__init__()
         self.focal = FocalLoss(alpha=alpha, gamma=gamma, reduction="mean")
@@ -197,14 +197,14 @@ def build_loss(cfg: dict) -> nn.Module:
             gamma=cfg.get("gamma", 2.0),
         )
     elif loss_type == "dice":
-        return DiceLoss(smooth=cfg.get("smooth", 1.0))
+        return DiceLoss(smooth=cfg.get("smooth", 0.1))
     elif loss_type == "focal_dice":
         return FocalDiceLoss(
             alpha=cfg.get("alpha", 0.75),
             gamma=cfg.get("gamma", 2.0),
             focal_weight=cfg.get("focal_weight", 1.0),
             dice_weight=cfg.get("dice_weight", 1.0),
-            smooth=cfg.get("smooth", 1.0),
+            smooth=cfg.get("smooth", 0.1),
         )
     else:
         raise ValueError(
