@@ -106,6 +106,13 @@ df_viirs.columns = df_viirs.columns.str.strip()
 
 if 'acq_date' not in df_viirs.columns:
     raise KeyError("Missing required column 'acq_date' in source file.")
+
+before = len(df_viirs)
+df_viirs = df_viirs.dropna(subset=['acq_date', 'acq_time'])
+dropped = before - len(df_viirs)
+if dropped:
+    print(f"Dropped {dropped} malformed row(s) with missing acq_date/acq_time.")
+
 df_viirs['acq_date'] = pd.to_datetime(df_viirs['acq_date'])
 df_viirs['acq_time_str'] = df_viirs['acq_time'].astype(int).apply(lambda t: f"{t:04d}")
 df_viirs['acq_datetime'] = pd.to_datetime(
