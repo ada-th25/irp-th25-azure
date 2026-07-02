@@ -432,7 +432,7 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         ee.batch.Export.image.toCloudStorage(
             image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
             bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
-            scale=VIIRS_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
+            scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] Covariate export: {cluster_id}")
 
@@ -448,7 +448,7 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         "context_ratio": VIIRS_CONTEXT_RATIO,
         "context_extent_m": VIIRS_CONTEXT_EXTENT_M,
         "goes_scale_m": GOES_NATIVE_SCALE_M,
-        "covariate_scale_m": VIIRS_GRID_SCALE,
+        "covariate_scale_m": LANDSAT_GRID_SCALE,
         "n_detections": int(len(group_df)),
         "max_frp": float(group_df['frp'].max()),
         "goes_dispatched": goes_dispatched,
