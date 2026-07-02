@@ -372,3 +372,34 @@ def main():
                 f"time={time.time()-t0:.0f}s",
                 flush=True,
             )
+        
+        # ── Log ───────────────────────────────────────────────────────────
+        csv_logger.log(log_row)
+ 
+        if use_wandb:
+            import wandb
+            wandb.log(log_row, step=epoch)
+ 
+        # ── Checkpoint ────────────────────────────────────────────────────
+        if epoch % save_every == 0 or epoch == n_epochs:
+            ckpt_path = str(ckpt_dir / f"epoch_{epoch:03d}.pt")
+            torch.save({
+                "epoch":     epoch,
+                "model":     model.state_dict(),
+                "optimiser": optimiser.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "best_iou":  best_iou,
+                "config":    cfg,
+            }, ckpt_path)
+            upload_checkpoint(gcs_bucket, ckpt_path, gcs_ckpt_prefix)
+            prune_old_checkpoints(gcs_bucket, gcs_ckpt_prefix, keep_last)
+ 
+    # ── Done ──────────────────────────────────────────────────────────────
+    print(f"\nTraining complete. Best val_iou: {best_iou:.4f}")
+    if use_wandb:
+        import wandb
+        wandb.finish()
+ 
+ 
+if __name__ == "__main__":
+    main()
