@@ -27,9 +27,9 @@ def load_split_ids(bucket_name: str, branch: str,
         FileNotFoundError if the split file does not exist, run
         split_data.py first.
     """
-    path   = f"{output_prefix}/splits/{branch}/{split}.txt"
+    path = f"{output_prefix}/splits/{branch}/{split}.txt"
     bucket = storage.Client().bucket(bucket_name)
-    blob   = bucket.blob(path)
+    blob = bucket.blob(path)
  
     if not blob.exists():
         raise FileNotFoundError(
@@ -38,7 +38,7 @@ def load_split_ids(bucket_name: str, branch: str,
         )
  
     content = blob.download_as_text().strip()
-    ids     = set(line.strip() for line in content.splitlines() if line.strip())
+    ids = set(line.strip() for line in content.splitlines() if line.strip())
     print(f"[load_split_ids] Loaded {len(ids)} IDs for {branch}/{split}")
     return ids
 
@@ -54,13 +54,13 @@ class WildfireDataset(Dataset):
     Spatial layout after __getitem__:
         Landsat branch:
             goes       -> (3, 15, 15)   bilinear snap from ~15-16px GEE output
-            covariates -> (2, 256, 256)  centre-cropped from 1024px context export
+            covariates -> (2, 256, 256)  
             target     -> (1, 256, 256)  untouched Pereira patch
 
         VIIRS branch:
             goes       -> (3, 15, 15)   bilinear snap from 15px GEE output
-            covariates -> (2, 80, 80)   full context-extent covariate (30,000m @ 375m)
-            target     -> (1, 20, 20)   nearest snap from GEE output (7500m @ 375m)
+            covariates -> (2, 256, 256)   
+            target     -> (1, 256, 256)   nearest snap from GEE output (7500m @ 375m)
 
     Completeness filtering:
         Samples are silently dropped at init time if any of the three
@@ -79,8 +79,8 @@ class WildfireDataset(Dataset):
             self.cov_size = (256, 256)
             self.goes_size = (15, 15)
         else:  # viirs
-            self.target_size = (20, 20)
-            self.cov_size = (20, 20)
+            self.target_size = (256, 256)
+            self.cov_size = (256, 256)
             self.goes_size = (15, 15)
 
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
@@ -124,7 +124,7 @@ class WildfireDataset(Dataset):
             raw = blob.download_as_bytes()
             with rasterio.MemoryFile(raw) as mf:
                 with mf.open() as src:
-                    data   = src.read().astype(np.float32)
+                    data = src.read().astype(np.float32)
                     nodata = src.nodata
             if nodata is not None:
                 data[data == nodata] = 0.0
@@ -144,8 +144,8 @@ class WildfireDataset(Dataset):
         for m in raw_samples:
             paths = m.get("paths", {})
             target_path = paths.get("target", "")
-            goes_path   = paths.get("goes_input", "")
-            cov_path    = paths.get("covariates", "")
+            goes_path = paths.get("goes_input", "")
+            cov_path = paths.get("covariates", "")
 
             # All three paths must exist in GCS
             if not all([
@@ -185,7 +185,7 @@ class WildfireDataset(Dataset):
         raw  = blob.download_as_bytes()
         with rasterio.MemoryFile(raw) as memfile:
             with memfile.open() as src:
-                data   = src.read().astype(np.float32)
+                data = src.read().astype(np.float32)
                 nodata = src.nodata
         if nodata is not None:
             data[data == nodata] = fill_nodata
@@ -215,11 +215,11 @@ class WildfireDataset(Dataset):
 
     def __getitem__(self, idx):
         manifest = self.samples[idx]
-        paths    = manifest["paths"]
+        paths = manifest["paths"]
     
         target = self._read_gcs_raster(paths["target"])
-        goes   = self._read_gcs_raster(paths["goes_input"])
-        cov    = self._read_gcs_raster(paths["covariates"])
+        goes = self._read_gcs_raster(paths["goes_input"])
+        cov = self._read_gcs_raster(paths["covariates"])
     
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
         goes = F.interpolate(

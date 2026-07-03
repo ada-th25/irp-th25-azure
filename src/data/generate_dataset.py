@@ -63,8 +63,8 @@ VIIRS_GRID_SCALE = 375            # 375m target resolution for VIIRS branch
 LANDSAT_TARGET_PIXELS = 256
 LANDSAT_TARGET_EXTENT_M = LANDSAT_TARGET_PIXELS * LANDSAT_GRID_SCALE  # 7680m - Pereira 256x256 @ 30m patches
 
-VIIRS_TARGET_EXTENT_M = 7500 # 20 x 375m
-VIIRS_TARGET_PIXELS = int(VIIRS_TARGET_EXTENT_M / VIIRS_GRID_SCALE) # 20
+VIIRS_TARGET_EXTENT_M = 7680
+VIIRS_TARGET_PIXELS = int(VIIRS_TARGET_EXTENT_M / VIIRS_GRID_SCALE)
 
 # Context-to-target ratio. This gives GOES and context data a zoomed-out window
 # A ratio of 1 means context == target extent.

@@ -554,6 +554,9 @@ class HAUNet(nn.Module):
         Returns:
             (B, 1, H, W) fire mask logit — apply sigmoid for probabilities.
         """
+
+        B, C, H, W = inp.shape
+        inp = self.check_image_size(inp)   # pad up to a multiple of padder_size (4)
  
         x = self.intro(inp)   # (B, width, H, W)
  
@@ -578,7 +581,7 @@ class HAUNet(nn.Module):
  
         x = self.output_head(x)   # (B, 1, H, W)
  
-        return x   # raw logit; caller applies sigmoid or BCEWithLogitsLoss
+        return x[:, :, :H, :W]   # crop back to original input size
  
     def check_image_size(self, x):
         """Pad input to be divisible by padder_size (= 2^num_encoder_stages)."""
