@@ -1,4 +1,5 @@
 import argparse
+from html import parser
 import json
 import numpy as np
 from sklearn.model_selection import StratifiedShuffleSplit
@@ -10,7 +11,7 @@ from google.auth import default
 # Config
 # ------------------------------------------------------------------
 BUCKET_NAME = "wildfire-irp-data-th25"
-OUTPUT_PREFIX = "processed_dataset"
+OUTPUT_PREFIX = "processed_dataset_r1"
 TRAIN_RATIO = 0.80
 VAL_RATIO = 0.10
 # TEST_RATIO is implicit: 1 - TRAIN - VAL
@@ -93,25 +94,29 @@ def stratified_split(
     return train_ids, val_ids, test_ids
 
 
-def write_split(bucket, branch: str, split_name: str, ids: list[str]) -> None:
-    path = f"{OUTPUT_PREFIX}/splits/{branch}/{split_name}.txt"
+def write_split(bucket, branch: str, split_name: str, ids: list[str],
+                 suffix: str = "") -> None:
+    splits_dir = f"splits_{suffix}" if suffix else "splits"
+    path = f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/{split_name}.txt"
     content = "\n".join(sorted(ids))
     bucket.blob(path).upload_from_string(content, content_type="text/plain")
     print(f"  Written {len(ids):4d} IDs -> gs://{bucket.name}/{path}")
 
 
-def split_exists(bucket, branch: str) -> bool:
+def split_exists(bucket, branch: str, suffix: str = "") -> bool:
+    splits_dir = f"splits_{suffix}" if suffix else "splits"
     return bucket.blob(
-        f"{OUTPUT_PREFIX}/splits/{branch}/train.txt"
+        f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/train.txt"
     ).exists()
 
 
-def run_branch(bucket, branch: str, overwrite: bool) -> None:
+def run_branch(bucket, branch: str, overwrite: bool,
+                max_samples: int = None, suffix: str = "") -> None:
     print(f"\n{'='*60}")
-    print(f"Branch: {branch}")
+    print(f"Branch: {branch}" + (f" (suffix={suffix})" if suffix else ""))
     print(f"{'='*60}")
 
-    if split_exists(bucket, branch) and not overwrite:
+    if split_exists(bucket, branch, suffix) and not overwrite:
         print(f"  Splits already exist for '{branch}'. "
               f"Use --overwrite to regenerate.")
         return
@@ -144,14 +149,21 @@ def run_branch(bucket, branch: str, overwrite: bool) -> None:
         TRAIN_RATIO, VAL_RATIO, N_STRATA, RANDOM_SEED
     )
 
+    if max_samples is not None:
+        train_ids = train_ids[:max_samples]
+        val_ids   = val_ids[:max(2, max_samples // 4)]
+        test_ids  = test_ids[:max(2, max_samples // 4)]
+        print(f"  [SMOKE] Capped to train={len(train_ids)} / "
+              f"val={len(val_ids)} / test={len(test_ids)}")
+
     total = len(train_ids) + len(val_ids) + len(test_ids)
     print(f"\n  Final split: train={len(train_ids)} / "
           f"val={len(val_ids)} / test={len(test_ids)} "
           f"(total={total})")
 
-    write_split(bucket, branch, "train", train_ids)
-    write_split(bucket, branch, "val",   val_ids)
-    write_split(bucket, branch, "test",  test_ids)
+    write_split(bucket, branch, "train", train_ids, suffix)
+    write_split(bucket, branch, "val",   val_ids, suffix)
+    write_split(bucket, branch, "test",  test_ids, suffix)
     print(f"  Done.")
 
 def main():
@@ -160,6 +172,10 @@ def main():
                         default="both")
     parser.add_argument("--overwrite", action="store_true",
                         help="Regenerate splits even if they already exist.")
+    parser.add_argument("--max-samples", type=int, default=None,
+                        help="Cap each split to N samples (for smoke testing/fine tuning)")
+    parser.add_argument("--suffix", default="",
+                        help="Suffix for output split dir")
     args = parser.parse_args()
 
     credentials, _ = default()
@@ -169,7 +185,8 @@ def main():
                 else [args.branch])
 
     for branch in branches:
-        run_branch(bucket, branch, args.overwrite)
+        run_branch(bucket, branch, args.overwrite,
+                   max_samples=args.max_samples, suffix=args.suffix)
 
     print("\nSplits complete.")
 
