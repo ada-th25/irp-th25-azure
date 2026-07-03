@@ -10,7 +10,8 @@ from google.cloud import storage
 # Data Split
 # ------------------------------------------------------------------
 def load_split_ids(bucket_name: str, branch: str,
-                   split: str, output_prefix: str = "processed_dataset") -> set[str]:
+                   split: str, output_prefix: str = "processed_dataset",
+                   splits_dir: str = "splits") -> set[str]:
     """
     Read a split text file from GCS and return the set of sample IDs.
  
@@ -19,6 +20,9 @@ def load_split_ids(bucket_name: str, branch: str,
         branch: 'landsat' or 'viirs'
         split: 'train', 'val', or 'test'
         output_prefix: top-level GCS prefix (default 'processed_dataset')
+        splits_dir: which splits folder to read from, e.g. 'splits'
+                    (full dataset) or 'splits_dev500' (subsampled).
+                    Must match the --suffix used in split_data.py.
  
     Returns:
         Set of sample ID strings.
@@ -27,7 +31,7 @@ def load_split_ids(bucket_name: str, branch: str,
         FileNotFoundError if the split file does not exist, run
         split_data.py first.
     """
-    path = f"{output_prefix}/splits/{branch}/{split}.txt"
+    path = f"{output_prefix}/{splits_dir}/{branch}/{split}.txt"
     bucket = storage.Client().bucket(bucket_name)
     blob = bucket.blob(path)
  
