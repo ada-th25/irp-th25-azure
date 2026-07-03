@@ -138,6 +138,14 @@ def run_branch(bucket, branch: str, overwrite: bool,
             sample_ids.append(sid)
             pixel_counts.append(int(count))
 
+    if max_samples is not None:
+        rng = np.random.default_rng(RANDOM_SEED)
+        pool_idx = rng.permutation(len(sample_ids))[:max_samples]
+        sample_ids = [sample_ids[i] for i in pool_idx]
+        pixel_counts = [pixel_counts[i] for i in pool_idx]
+        print(f"  [SMOKE] Subsampled pool to {len(sample_ids)} samples "
+              f"before splitting (80/10/10 ratio preserved).")
+
     print(f"  Total samples: {len(sample_ids)}")
     print(f"  Fire size — min: {min(pixel_counts)}, "
           f"median: {int(np.median(pixel_counts))}, "
@@ -148,13 +156,6 @@ def run_branch(bucket, branch: str, overwrite: bool,
         sample_ids, pixel_counts,
         TRAIN_RATIO, VAL_RATIO, N_STRATA, RANDOM_SEED
     )
-
-    if max_samples is not None:
-        train_ids = train_ids[:max_samples]
-        val_ids   = val_ids[:max(2, max_samples // 4)]
-        test_ids  = test_ids[:max(2, max_samples // 4)]
-        print(f"  [SMOKE] Capped to train={len(train_ids)} / "
-              f"val={len(val_ids)} / test={len(test_ids)}")
 
     total = len(train_ids) + len(val_ids) + len(test_ids)
     print(f"\n  Final split: train={len(train_ids)} / "
