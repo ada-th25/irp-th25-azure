@@ -143,41 +143,8 @@ class WildfireDataset(Dataset):
         return True
 
     def _filter_complete(self, raw_samples):
-        valid = []
-        dropped = 0
-        for m in raw_samples:
-            paths = m.get("paths", {})
-            target_path = paths.get("target", "")
-            goes_path = paths.get("goes_input", "")
-            cov_path = paths.get("covariates", "")
-
-            # All three paths must exist in GCS
-            if not all([
-                self._blob_exists(target_path),
-                self._blob_exists(cov_path),
-            ]):
-                dropped += 1
-                continue
-
-            # GOES must exist and not be all-masked
-            if not self._goes_is_valid(goes_path):
-                dropped += 1
-                continue
-
-            # Target must have at least 1 non-zero pixel
-            try:
-                raw = self.bucket.blob(target_path).download_as_bytes()
-                with rasterio.MemoryFile(raw) as mf:
-                    with mf.open() as src:
-                        data = src.read().astype(np.float32)
-                if np.all(data == 0):
-                    dropped += 1
-                    continue
-            except Exception:
-                dropped += 1
-                continue
-
-            valid.append(m)
+        valid = [m for m in raw_samples if m.get("is_valid") is True]
+        dropped = len(raw_samples) - len(valid)
         return valid, dropped
 
     # ------------------------------------------------------------------

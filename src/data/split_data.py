@@ -125,6 +125,16 @@ def run_branch(bucket, branch: str, overwrite: bool,
     if not manifests:
         print(f"  [SKIP] No manifests found for branch '{branch}'.")
         return
+    
+    n_before = len(manifests)
+    manifests = [m for m in manifests if m.get("is_valid") is True]
+    n_dropped = n_before - len(manifests)
+    if n_dropped:
+        print(f"  Filtered {n_dropped}/{n_before} invalid samples "
+            f"(missing/corrupted rasters) before splitting.")
+    if not manifests:
+        print(f"  [SKIP] No valid manifests remain for branch '{branch}'.")
+        return
 
     # Extract IDs and fire pixel counts from manifests
     # Both landsat (n_active_pixels) and viirs (n_detections) branches
