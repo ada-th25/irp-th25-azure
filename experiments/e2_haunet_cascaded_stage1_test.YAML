@@ -1,0 +1,42 @@
+# experiments/e2_haunet_cascaded_stage1_test.yaml
+# ===================================
+# Stage 1 of the cascaded pipeline (GOES -> VIIRS), HAUNet, model/pipeline testing only.
+# Purpose: verify the pipeline runs end-to-end and produces sane loss/IoU
+# trends on a small subset, NOT a real experiment result.
+
+experiment:
+  name: e2_haunet_viirs_cascaded_stage1_test
+  branch: viirs
+
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_r1
+  splits_dir: splits_dev500        # <- points at the subsampled 80/10/10 split,
+                                   #    not the real 'splits/' full dataset
+  goes_channels: 3                # C07, C14, GOES_TFI: unchanged by the resolution rework
+  cov_channels: 2                 # DEM, land cover: unchanged by the resolution rework
+  num_workers: 2                  # small pool, no need for many workers
+
+training:
+  batch_size: 2                   # keep tiny given the small split (train~16 at max-samples=20)
+  epochs: 3                       # just enough to see the loss trend move
+  learning_rate: 1.0e-4
+  min_lr: 1.0e-6
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  val_every_n_epochs: 1           # validate every epoch since there are so few
+  save_every_n_epochs: 3          # save once, at the end
+
+checkpointing:
+  checkpoint_dir: checkpoints_test
+  gcs_checkpoint_prefix: processed_dataset_r1/checkpoints_smoke/e2_haunet_viirs_cascaded_stage1_test
+  keep_last_n: 1                  # don't bother retaining history for a throwaway run
+
+logging:
+  log_dir: logs_smoke
+  use_wandb: false                # keep smoke runs out of the real W&B project
+
+loss:
+  type: focal_dice                # matches your FocalDiceLoss / build_loss factory
+  alpha: 0.75                     # up-weights the rare fire class (your validated choice)
+  smooth: 0.05                    # low smooth given extreme pixel sparsity
