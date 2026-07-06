@@ -1,15 +1,24 @@
 import torch
+import math
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
 
-def make_model(goes_channels=3, cov_channels=2):
+def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
+               cov_refine_channels=32, cov_window_size=8):
     """
     Factory function for the wildfire-adapted HAUNet.
  
     Args:
         goes_channels: number of GOES input bands (default 3: C07, C14, TFI)
         cov_channels:  number of covariate bands (default 2: DEM, land cover)
+        downscale_factor: internal resolution reduction applied before the
+            main encoder/attention stack (must be a power of 2).
+        cov_refine_channels: channel width of the auxiliary full-resolution
+            covariate pyramid (kept narrow, this branch is convolution +
+            windowed-attention only, not the main cost driver).
+        cov_window_size: window size (pixels) for windowed spatial
+            self-attention applied to covariate features at each pyramid
+            scale. Cost scales with window_size^4, not full resolution^4.
  
     Returns:
         HAUNet instance configured for 256x256 -> 256x256 fire mask prediction.
@@ -21,6 +30,9 @@ def make_model(goes_channels=3, cov_channels=2):
         enc_blk_nums=[5, 5],
         dec_blk_nums=[5, 5],
         middle_blk_num=10,
+        downscale_factor=downscale_factor,
+        cov_refine_channels=cov_refine_channels,
+        cov_window_size=cov_window_size,
     )
 
 class LayerNormFunction(torch.autograd.Function):
@@ -459,6 +471,62 @@ class CEMBlock(nn.Module):
 
         return y + x * self.gamma
 
+class WindowedSCEMBlock(nn.Module):
+    def __init__(self, c, window_size=8, num_heads=2, FFN_Expand=2, drop_out_rate=0.):
+        super().__init__()
+        self.window_size = window_size
+        self.block = S_CEMBlock(c, num_heads=num_heads, FFN_Expand=FFN_Expand,
+                                 drop_out_rate=drop_out_rate)
+ 
+    def forward(self, x):
+        B, C, H, W = x.shape
+        ws = self.window_size
+ 
+        pad_h = (ws - H % ws) % ws
+        pad_w = (ws - W % ws) % ws
+        x_p = F.pad(x, (0, pad_w, 0, pad_h)) if (pad_h or pad_w) else x
+        Hp, Wp = x_p.shape[-2:]
+ 
+        # Partition into non-overlapping windows:
+        # (B, C, Hp, Wp) -> (B * nH * nW, C, ws, ws)
+        x_p = x_p.view(B, C, Hp // ws, ws, Wp // ws, ws)
+        x_p = x_p.permute(0, 2, 4, 1, 3, 5).contiguous()
+        x_p = x_p.view(-1, C, ws, ws)
+ 
+        x_p = self.block(x_p)   # full channel+spatial attention, but only within each window
+ 
+        # Reassemble windows back into the full feature map.
+        x_p = x_p.view(B, Hp // ws, Wp // ws, C, ws, ws)
+        x_p = x_p.permute(0, 3, 1, 4, 2, 5).contiguous()
+        x_p = x_p.view(B, C, Hp, Wp)
+ 
+        return x_p[:, :, :H, :W]
+    
+class CovariatePyramidEncoder(nn.Module):
+    def __init__(self, cov_channels, refine_channels, n_stages, window_size=8):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(cov_channels, refine_channels, 3, padding=1),
+            nn.ReLU(inplace=True),
+            WindowedSCEMBlock(refine_channels, window_size=window_size),
+        )
+        self.down_stages = nn.ModuleList()
+        for _ in range(n_stages):
+            self.down_stages.append(nn.Sequential(
+                nn.Conv2d(refine_channels, refine_channels, 3, stride=2, padding=1),
+                nn.ReLU(inplace=True),
+                WindowedSCEMBlock(refine_channels, window_size=window_size),
+            ))
+ 
+    def forward(self, cov):
+        """Returns a list of features [full_res, H/2, H/4, ..., H/2^n_stages]."""
+        feats = [self.stem(cov)]
+        c = feats[0]
+        for stage in self.down_stages:
+            c = stage(c)
+            feats.append(c)
+        return feats
+
 # ---------------------------------------------------------------------------
 # Main model
 # ---------------------------------------------------------------------------
@@ -470,8 +538,7 @@ class HAUNet(nn.Module):
              GOES bands must be bilinearly upsampled to 256x256 BEFORE
              being passed in. Covariates are already at 30m / 256x256.
     Output : (B, 1, 256, 256)  —  raw fire mask logit (no sigmoid).
-             Apply torch.sigmoid() for inference; use BCEWithLogitsLoss
-             during training.
+             Apply torch.sigmoid() for inference.
     """
  
     def __init__(
@@ -483,8 +550,19 @@ class HAUNet(nn.Module):
         enc_blk_nums = [5, 5],
         dec_blk_nums = [5, 5],
         heads = [1, 2, 4],
+        downscale_factor = 4,
+        cov_refine_channels = 32,
+        cov_window_size = 8,
     ):
         super().__init__()
+
+        assert downscale_factor >= 1 and (downscale_factor & (downscale_factor - 1)) == 0, \
+            "downscale_factor must be a power of 2 (1, 2, 4, 8, ...)"
+ 
+        self.goes_channels = goes_channels
+        self.cov_channels = cov_channels
+        self.downscale_factor = downscale_factor
+        self.n_refine_stages = int(math.log2(downscale_factor)) if downscale_factor > 1 else 0
  
         in_channels = goes_channels + cov_channels
  
@@ -539,6 +617,25 @@ class HAUNet(nn.Module):
         self.dec_blk_nums = dec_blk_nums
         self.padder_size  = 2 ** len(self.encoders)
 
+        self.cov_pyramid = CovariatePyramidEncoder(
+            cov_channels=cov_channels,
+            refine_channels=cov_refine_channels,
+            n_stages=self.n_refine_stages,
+            window_size=cov_window_size,
+        )
+
+        self.refine_ups = nn.ModuleList([
+            nn.ConvTranspose2d(width, width, kernel_size=2, stride=2)
+            for _ in range(self.n_refine_stages)
+        ])
+        self.refine_fuse = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(width + cov_refine_channels, width, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+            )
+            for _ in range(self.n_refine_stages)
+        ])
+
         self.output_head = nn.Conv2d(
             in_channels=width,
             out_channels=1,
@@ -552,13 +649,20 @@ class HAUNet(nn.Module):
                  GOES bands bilinearly upsampled to (H, W) = (256, 256).
                  Covariates at native 30m resolution, same spatial extent.
         Returns:
-            (B, 1, H, W) fire mask logit — apply sigmoid for probabilities.
+            (B, 1, H, W) fire mask logit: apply sigmoid for probabilities.
         """
 
         B, C, H, W = inp.shape
         inp = self.check_image_size(inp)   # pad up to a multiple of padder_size (4)
+
+        cov = inp[:, self.goes_channels:, :, :]
  
-        x = self.intro(inp)   # (B, width, H, W)
+        low_h = max(1, H // self.downscale_factor)
+        low_w = max(1, W // self.downscale_factor)
+        inp_low = F.interpolate(inp, size=(low_h, low_w), mode='bilinear', align_corners=False)
+        inp_low = self.check_image_size(inp_low)   # pad up to a multiple of padder_size
+ 
+        x = self.intro(inp_low)
  
         encs = []
         for encoder, down in zip(self.encoders, self.downs):
@@ -579,9 +683,26 @@ class HAUNet(nn.Module):
             x = x + enc_skip
             x = decoder(x)
  
-        x = self.output_head(x)   # (B, 1, H, W)
+        x = x[:, :, :low_h, :low_w]   # crop back to unpadded low-res size
+
+        # feats[0] = full res (H, W); feats[-1] = low-res (~low_h, low_w)
+        cov_feats = self.cov_pyramid(cov)
+
+        # Progressive coarse-to-fine refinement, fusing covariates at each scale
+        for i in range(self.n_refine_stages):
+            x = self.refine_ups[i](x)                              # upsample by 2x
+            cov_feat = cov_feats[self.n_refine_stages - 1 - i]      # matching scale, coarse->fine
+            if x.shape[-2:] != cov_feat.shape[-2:]:
+                x = F.interpolate(x, size=cov_feat.shape[-2:], mode='bilinear', align_corners=False)
+            x = torch.cat([x, cov_feat], dim=1)
+            x = self.refine_fuse[i](x)
  
-        return x[:, :, :H, :W]   # crop back to original input size
+        if x.shape[-2:] != (H, W):
+            x = F.interpolate(x, size=(H, W), mode='bilinear', align_corners=False)
+ 
+        x = self.output_head(x)   # (B, 1, H, W)
+
+        return x
  
     def check_image_size(self, x):
         """Pad input to be divisible by padder_size (= 2^num_encoder_stages)."""
