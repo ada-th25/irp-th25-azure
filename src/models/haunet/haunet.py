@@ -2,6 +2,7 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 
 def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
                cov_refine_channels=32, cov_window_size=8):
