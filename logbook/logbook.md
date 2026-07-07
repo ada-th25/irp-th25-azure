@@ -116,3 +116,15 @@
     - Obtain more VIIRS data by increasing the temporal extent of the dataset.
     - Start training the first model (HAUNet) on the VIIRs dataset.
     - Look into the feasibility of using the suggested Landsat dataset as ground truth target.
+
+### Meeting with Main Supervisor (07 Jul 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Discussed the problem with GEE request taking too long to load data.
+    - Discussed about how we can reduce the requests.
+- **Feedback:**
+    - Consider looking into public buckets for GOES 16/17 instead of downloading from GEE.
+    - Consider rasterising VIIRS without GEE API.
+- **Work Plan Before Next Meeting:**
+    - Look into how to use the public bucket in the data pipeline.
+    - Look into how to rasterise without GEE.
