@@ -26,6 +26,7 @@ _storage_client = storage.Client()
 # Prevents two threads racing to download the same full-disk scan.
 _scan_cache = {}
 _scan_cache_lock = threading.Lock()
+_netcdf_io_lock = threading.Lock()
 
 
 def _list_candidate_blobs(target_utc_dt, satellite="G16"):
@@ -65,27 +66,11 @@ def find_closest_goes_blob(target_utc_dt, satellite="G16"):
     return scan_dt, blob, time_diff
 
 
-def _download_scan_cached(blob, scan_dt, satellite):
-    """Download a scan once, reusing it across threads/samples that need the same scan."""
-    scan_key = (satellite, scan_dt.strftime("%Y%m%dT%H%M%S"))
-
-    with _scan_cache_lock:
-        cached_path = _scan_cache.get(scan_key)
-        if cached_path and os.path.exists(cached_path):
-            return cached_path
-        # Reserve the slot before releasing the lock so other threads wait
-        # rather than triggering a duplicate download.
-        local_path = os.path.join(GOES_CACHE_DIR, f"{satellite}_{scan_key[1]}.nc")
-        _scan_cache[scan_key] = local_path
-
-    if not os.path.exists(local_path):
-        blob.download_to_filename(local_path)
-
-    return local_path
-
 def _reproject_bands(nc_path, xmin, ymin, xmax, ymax, width, height, dst_crs,
                      target_shape=None, target_transform=None):
-    with xr.open_dataset(nc_path, mask_and_scale=True) as ds:
+    # Serialized: netCDF4/HDF5 + GDAL are not safe to touch concurrently
+    # from multiple threads (silent segfault otherwise, no traceback).
+    with _netcdf_io_lock, xr.open_dataset(nc_path, mask_and_scale=True) as ds:
         # Sort coordinates to match standard grid indexing
         ds = ds.sortby("y").sortby("x")
 

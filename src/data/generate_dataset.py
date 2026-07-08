@@ -20,6 +20,9 @@ from google.cloud import storage
 from google.auth import default
 import numpy as np
 import pandas as pd
+import geopandas as gpd
+
+from goes_local_fetch import fetch_goes_local_stack, upload_stack_as_geotiff
 
 # Suppress the noisy httplib2 transport warning log
 warnings.filterwarnings("ignore", message=".*transport does not support per-request timeout.*")
@@ -37,7 +40,7 @@ bucket = storage_client.bucket(BUCKET_NAME)
 # ==========================================
 # Output Prefix
 # ==========================================
-OUTPUT_PREFIX = "processed_dataset_r1"
+OUTPUT_PREFIX = "processed_dataset_optimised"
 
 print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/"))
@@ -65,6 +68,7 @@ LANDSAT_TARGET_EXTENT_M = LANDSAT_TARGET_PIXELS * LANDSAT_GRID_SCALE  # 7680m - 
 
 VIIRS_TARGET_EXTENT_M = 7680
 VIIRS_TARGET_PIXELS = int(VIIRS_TARGET_EXTENT_M / VIIRS_GRID_SCALE)
+VIIRS_ACTUAL_SCALE_M = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS    # 384.0 -- the TRUE pixel size
 
 # Context-to-target ratio. This gives GOES and context data a zoomed-out window
 # A ratio of 1 means context == target extent.
@@ -240,6 +244,38 @@ def get_utm_epsg(lon, lat):
     zone = int((lon + 180) / 6) + 1
     return f"EPSG:{32600 + zone}" if lat >= 0 else f"EPSG:{32700 + zone}"
 
+GOES_ZERO_FRACTION_THRESHOLD = 0.05
+
+def fetch_and_validate_goes_local(center_lon, center_lat, target_dt, extent_m, utm_crs, goes_prefix):
+    to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+    cx, cy = to_utm.transform(center_lon, center_lat)
+    half = extent_m / 2.0
+    xmin, xmax, ymin, ymax = cx - half, cx + half, cy - half, cy + half
+
+    stack, matched = fetch_goes_local_stack(center_lon, center_lat, target_dt, extent_m, utm_crs)
+
+    if not matched:
+        return "no_scan", {}
+    if np.all(stack == 0):
+        return "all_zero", {}
+
+    upload_stack_as_geotiff(stack, xmin, ymin, xmax, ymax, utm_crs, bucket, f"{goes_prefix}.tif")
+    return "ok", {"zero_fraction": float(np.mean(stack == 0.0))}
+
+def resolve_landsat_target_dt(meta):
+    dt_str = meta.get("datetime")
+    if dt_str:
+        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(dt_str, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.strptime(dt_str, "%Y-%m-%d")
+        except ValueError:
+            pass
+    return datetime.strptime(f"{meta['date']} 00:00:00", "%Y-%m-%d %H:%M:%S")
+
 # ==========================================
 # Feature Extractors (GOES / VIIRS / COV)
 # ==========================================
@@ -329,17 +365,18 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
               f"mask_source={mask_source})")
 
     goes_blob = bucket.blob(f"{goes_prefix}.tif")
-    goes_dispatched = goes_blob.exists()
-    if not goes_dispatched:
-        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee.Date(meta['datetime']))
-        wait_for_queue_slot()
-        ee.batch.Export.image.toCloudStorage(
-            image=goes_img, description=f"goes_ls_{sample_id}",
-            bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
-            scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
-        ).start()
-        print(f"    [DISPATCHED] GOES context export: {sample_id}")
-        goes_dispatched = True
+    if goes_blob.exists():
+        goes_status = "ok"
+    else:
+        target_dt = resolve_landsat_target_dt(meta)
+        goes_status, goes_info = fetch_and_validate_goes_local(
+            center_lon, center_lat, target_dt, LANDSAT_CONTEXT_EXTENT_M, utm_crs, goes_prefix
+        )
+        if goes_status == "ok":
+            print(f"    [SAVED] GOES context: {sample_id} (zero_frac={goes_info['zero_fraction']:.3f})")
+        else:
+            print(f"    [DROP] GOES fetch failed for {sample_id}: {goes_status} {goes_info}")
+    goes_dispatched = (goes_status == "ok")
 
     if not gcs_exists(cov_prefix):
         wait_for_queue_slot()
@@ -367,6 +404,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
         "goes_scale_m": GOES_NATIVE_SCALE_M,
         "covariate_scale_m": LANDSAT_GRID_SCALE,
         "goes_dispatched": goes_dispatched,
+        "goes_fetch_status": goes_status,
         "paths": {
             "target": f"{target_prefix}.tif",
             "goes_input": f"{goes_prefix}.tif",
@@ -386,18 +424,74 @@ def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
     df['overpass_window'] = df['acq_datetime'].dt.floor(f'{VIIRS_TEMPORAL_WINDOW_MIN}min')
     return df, cell_deg
 
-def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group_df):
+def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
+    peak_time = group_df.loc[group_df['frp'].idxmax(), 'acq_datetime']
+    
     target_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}"
     goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
     cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
     manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
 
     utm_crs = get_utm_epsg(center_lon, center_lat)
-    target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M, utm_crs)
+    #target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M, utm_crs)
     context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
 
+    # Calculate the bounding box metrics locally matching build_roi extent logic
+    # VIIRS_TARGET_EXTENT_M = 7680m
+    half_extent = VIIRS_TARGET_EXTENT_M / 2.0
+
+    # Project center point to UTM
+    transformer_to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+    cx_utm, cy_utm = transformer_to_utm.transform(center_lon, center_lat)
+
+    # Calculate tight matrix grid boundaries
+    xmin = cx_utm - half_extent
+    xmax = cx_utm + half_extent
+    ymin = cy_utm - half_extent
+    ymax = cy_utm + half_extent
+    
+    width = VIIRS_TARGET_PIXELS   # 7680 / 375 = 20 pixels
+    height = VIIRS_TARGET_PIXELS  # 20 pixels
+    actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS  # 384.0m — true pixel size given integer width
+
+    target_path_tif = f"{target_prefix}.tif"
     if not gcs_exists(target_prefix):
-        features = [
+        local_array = np.zeros((height, width), dtype=np.float32)
+        
+        # Convert df points to UTM
+        gdf = gpd.GeoDataFrame(
+            group_df, 
+            geometry=gpd.points_from_xy(group_df.longitude, group_df.latitude), 
+            crs="EPSG:4326"
+        ).to_crs(utm_crs)
+        
+        # Max Reducer simulation: sort ascending so highest values overwrite cells last
+        gdf = gdf.sort_values(by='frp', ascending=True)
+        for _, row in gdf.iterrows():
+            px, py = row.geometry.x, row.geometry.y
+            
+            col = int(np.floor((px - xmin) / actual_scale_m))
+            row_idx = int(np.floor((ymax - py) / actual_scale_m))
+            
+            if 0 <= col < width and 0 <= row_idx < height:
+                local_array[row_idx, col] = row['frp']
+                
+        # Write directly to an in-memory stream as a valid GeoTIFF
+        transform = rasterio.transform.from_bounds(xmin, ymin, xmax, ymax, width, height)
+        mem_file = io.BytesIO()
+        with rasterio.open(
+            mem_file, 'w', driver='GTiff',
+            height=height, width=width, count=1,
+            dtype='float32', crs=utm_crs, transform=transform
+        ) as dst:
+            dst.write(local_array, 1)
+            
+        # Stream GeoTIFF file directly to GCS bucket
+        mem_file.seek(0)
+        bucket.blob(target_path_tif).upload_from_file(mem_file, content_type='image/tiff')
+        print(f"    [LOCAL SAVED] VIIRS local raster target: {cluster_id}")
+
+        '''features = [
             ee.Feature(ee.Geometry.Point([float(row['longitude']), float(row['latitude'])]), {'frp': float(row['frp'])})
             for _, row in group_df.iterrows()
         ]
@@ -412,9 +506,9 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
             bucket=BUCKET_NAME, fileNamePrefix=target_prefix, region=target_roi,
             scale=VIIRS_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
-        print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")
+        print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")'''
 
-    goes_blob = bucket.blob(f"{goes_prefix}.tif")
+    '''goes_blob = bucket.blob(f"{goes_prefix}.tif")
     goes_dispatched = goes_blob.exists()
     if not goes_dispatched:
         goes_img = fetch_goes_fire_features(context_roi, center_lon, ee_viirs_date)
@@ -425,7 +519,21 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
             scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
         ).start()
         print(f"    [DISPATCHED] GOES context export: {cluster_id}")
-        goes_dispatched = True
+        goes_dispatched = True'''
+    
+    goes_blob = bucket.blob(f"{goes_prefix}.tif")
+    if goes_blob.exists():
+        goes_status = "ok"
+    else:
+        target_dt = peak_time.to_pydatetime() if hasattr(peak_time, "to_pydatetime") else peak_time
+        goes_status, goes_info = fetch_and_validate_goes_local(
+            center_lon, center_lat, target_dt, VIIRS_CONTEXT_EXTENT_M, utm_crs, goes_prefix
+        )
+        if goes_status == "ok":
+            print(f"    [SAVED] GOES context: {cluster_id} (zero_frac={goes_info['zero_fraction']:.3f})")
+        else:
+            print(f"    [DROP] GOES fetch failed for {cluster_id}: {goes_status} {goes_info}")
+    goes_dispatched = (goes_status == "ok")
 
     if not gcs_exists(cov_prefix):
         wait_for_queue_slot()
@@ -440,11 +548,12 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         "id": cluster_id,
         "branch": "viirs",
         "date": group_df['acq_date'].iloc[0].strftime("%Y-%m-%d"),
+        "peak_datetime": peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "center": [center_lon, center_lat],
         "crs": utm_crs,
         "target_pixels_nominal": VIIRS_TARGET_PIXELS,  # 7500m/375m=20 exactly
         "target_extent_m": VIIRS_TARGET_EXTENT_M,
-        "target_scale_m": VIIRS_GRID_SCALE,
+        "target_scale_m": actual_scale_m,
         "context_ratio": VIIRS_CONTEXT_RATIO,
         "context_extent_m": VIIRS_CONTEXT_EXTENT_M,
         "goes_scale_m": GOES_NATIVE_SCALE_M,
@@ -452,6 +561,7 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, gro
         "n_detections": int(len(group_df)),
         "max_frp": float(group_df['frp'].max()),
         "goes_dispatched": goes_dispatched,
+        "goes_fetch_status": goes_status,
         "paths": {
             "target": f"{target_prefix}.tif",
             "goes_input": f"{goes_prefix}.tif",
@@ -473,9 +583,48 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
 
     df, cell_deg = assign_viirs_cells(pool)
     groups = list(df.groupby(['overpass_window', 'cell_lon', 'cell_lat']))
-    if len(groups) > max_clusters:
-        print(f"[TEST MODE] {len(groups)} candidate clusters found; capping at {max_clusters}.")
-        groups = groups[:max_clusters]
+    
+    # -----------------------------------------------------------------
+    # STRATIFIED SAMPLING REPLACEMENT
+    # -----------------------------------------------------------------
+    # Divide your overall cluster budget evenly across the 12 months
+    TARGET_PER_MONTH = max(1, max_clusters // 12)
+    NUM_BINS = 4  # Splits clusters into 4 size-based quantiles per month
+    
+    print(f"Applying monthly size-stratification (Targeting ~{TARGET_PER_MONTH} clusters/month)...")
+    cluster_meta = []
+    for idx, (key, group) in enumerate(groups):
+        cluster_meta.append({
+            'array_idx': idx,
+            'month': key[0].month,
+            'n_detections': len(group)
+        })
+    df_meta = pd.DataFrame(cluster_meta)
+    
+    selected_indices = []
+    for month, month_df in df_meta.groupby('month'):
+        try:
+            month_df = month_df.copy()
+            month_df['bin'] = pd.qcut(month_df['n_detections'], q=NUM_BINS, labels=False, duplicates='drop')
+        except ValueError:
+            month_df['bin'] = month_df['n_detections'] % NUM_BINS
+            
+        bins = month_df['bin'].unique()
+        samples_per_bin = TARGET_PER_MONTH // len(bins)
+        
+        for b in bins:
+            bin_df = month_df[month_df['bin'] == b]
+            n_available = len(bin_df)
+            
+            if n_available <= samples_per_bin:
+                selected_indices.extend(bin_df['array_idx'].tolist())
+            else:
+                sampled_bin = bin_df.sample(n=samples_per_bin, random_state=42)
+                selected_indices.extend(sampled_bin['array_idx'].tolist())
+                
+    # Overwrite the candidate list with only your stratified subset
+    groups = [groups[i] for i in selected_indices]
+    print(f"Stratification complete. Retained {len(groups)} balanced clusters across the year.")
 
     VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
     
@@ -492,10 +641,10 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
         group = group[time_spread <= pd.Timedelta(minutes=VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
     
         # Representative datetime from peak-FRP detection
-        ee_viirs_date = ee.Date(peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        #ee_viirs_date = ee.Date(peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"))
     
         cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
-        process_viirs_cluster(cluster_id, center_lon, center_lat, ee_viirs_date, group)
+        process_viirs_cluster(cluster_id, center_lon, center_lat, group)
         return cluster_id
 
     print(f"Dispatching {len(groups)} VIIRS clusters with {dispatch_workers} workers...")
@@ -671,7 +820,7 @@ if __name__ == "__main__":
 
     MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
     MAX_TIFFS_PER_SUB = 10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
-    MAX_VIIRS_CLUSTERS = 5000
+    MAX_VIIRS_CLUSTERS = 30#12_000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 
