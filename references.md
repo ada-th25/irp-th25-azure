@@ -166,3 +166,14 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generate training script to run model training (`train.py`).
     * **Prompt:** (pasting existing HAUNet model) "Generate a training script that trains the model, and logs the metrics calculated during training. Include W&B logging"
     * **Human Modification:** Edit the script to integrate my current metrics script.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 07/07/2026
+    * **Scope:** Alter dataset pipeline to rasterise VIIRS locally, and to fetch GOES data from public GCP bucket. The rasterised VIIRS is downloaded so that data is evenly collected across the years (by month) and the number of active pixels are distributed evenly. The script `goes_local_fetch.py` is generated.
+    * **Prompt:** (pasting existing pipeline) "Change the pipeline so that instead of rasterising VIIRS via GEE, rasterise them locally, and also fetch GOES data from public GCP bucket for GOES 16/17. Also, collect VIIRs data so that data is evenly collected across the years (by month) and the number of active pixels are distributed evenly."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 08/07/2026
+    * **Scope:** Generate `goes_local_fetch` to fetch GOES data from public GCP bucket. This includes finding the closest GOEs data, reprojection, uploading as tiff, filtering for all zero data etc.
+    * **Prompt:** (pasting existing pipeline) "Create a script to replace the GEE GOES fetching code, so that it obtains the GOES data from the public GCP bucket, and does necessary searching and processing, such as reprojection to match with the original GEE pipeline."
+    * **Human Modification:** Delete unecessary processing, and fix datetime bugs.

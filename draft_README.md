@@ -12,7 +12,7 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 ├── deliverables/               # Project plan and report
 │   ├── project_plan.pdf        # Initial project scope and timeline
 │   └── final_report.pdf        # Completed IRP final report
-├── environment.yml             # Conda environment definition with required dependencies
+├── requirements.txt            # Project dependencies
 ├── logbook/                    # Project tracking and meeting records
 ├── notebooks/                  # Project notes and exploratory ipynb notebooks
 ├── src/                        # Main project codebase and source modules
