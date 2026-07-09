@@ -177,3 +177,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generate `goes_local_fetch` to fetch GOES data from public GCP bucket. This includes finding the closest GOEs data, reprojection, uploading as tiff, filtering for all zero data etc.
     * **Prompt:** (pasting existing pipeline) "Create a script to replace the GEE GOES fetching code, so that it obtains the GOES data from the public GCP bucket, and does necessary searching and processing, such as reprojection to match with the original GEE pipeline."
     * **Human Modification:** Delete unecessary processing, and fix datetime bugs.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 09/07/2026
+    * **Scope:** Debug `goes_local_fetch` to automatically evict cache to prevent dataset pipeline from failing. This adds the function `_evict_lru_if_needed`. And also fixes threading errors.
+    * **Prompt:** (pasting existing pipeline and error message) "Debug `goes_local_fetch` to automatically evict cache to prevent dataset pipeline from failing by capping total cache size and evict older files before new ones are downloaded."
