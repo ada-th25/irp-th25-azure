@@ -13,7 +13,7 @@ import threading
 import warnings
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pyproj import Transformer
 from google.cloud import storage
@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-from goes_local_fetch import fetch_goes_local_stack, upload_stack_as_geotiff
+from goes_local_fetch import fetch_goes_local_stack, upload_stack_as_geotiff, GDAL_IO_LOCK
 
 # Suppress the noisy httplib2 transport warning log
 warnings.filterwarnings("ignore", message=".*transport does not support per-request timeout.*")
@@ -40,7 +40,7 @@ bucket = storage_client.bucket(BUCKET_NAME)
 # ==========================================
 # Output Prefix
 # ==========================================
-OUTPUT_PREFIX = "processed_dataset_optimised"
+OUTPUT_PREFIX = "processed_dataset_gcp"
 
 print("Caching existing files from GCS...")
 existing_blobs = set(b.name for b in bucket.list_blobs(prefix=f"{OUTPUT_PREFIX}/"))
@@ -141,8 +141,14 @@ print(f"VIIRS branch pool after Jan-Dec-2020 filtering: {len(df_viirs)} detectio
 # ==========================================
 # Core Utilities
 # ==========================================
-def gcs_exists(path_prefix):
-    return any(name.startswith(path_prefix) for name in existing_blobs)
+'''def gcs_exists(path_prefix):
+    return any(name.startswith(path_prefix) for name in existing_blobs)'''
+def gcs_exists(prefix):
+    """Thread-safe check for GCS object existence."""
+    # Ensure it uses the thread-isolated bucket context
+    bucket_ctx = get_thread_bucket()
+    blobs = list(bucket_ctx.list_blobs(prefix=prefix, max_results=1))
+    return len(blobs) > 0
 
 # Thread-safe tracker arrays for bounding box processing
 collected_patch_bboxes = []
@@ -163,10 +169,14 @@ def write_manifest(path, data):
     blob = bucket.blob(path)
     blob.upload_from_string(json.dumps(data, indent=2), content_type='application/json')
 
-EE_DISPATCH_WORKERS = 12
+EE_DISPATCH_WORKERS = 5
 QUEUE_CHECK_INTERVAL = 25
 _dispatch_count = 0
 _dispatch_count_lock = threading.Lock()
+
+EE_DISPATCH_LOCK = threading.Lock()
+GOES_PROCESSING_LOCK = threading.Lock()
+_thread_local_storage = threading.local()
 
 def wait_for_queue_slot():
     global _dispatch_count
@@ -246,20 +256,35 @@ def get_utm_epsg(lon, lat):
 
 GOES_ZERO_FRACTION_THRESHOLD = 0.05
 
-def fetch_and_validate_goes_local(center_lon, center_lat, target_dt, extent_m, utm_crs, goes_prefix):
+def fetch_and_validate_goes_local(
+    center_lon, center_lat, target_dt, extent_m, utm_crs, 
+    bucket_ctx, goes_prefix, local_cache_dir=None
+):
+    """
+    Fetches and validates GOES local stack data. 
+    If bucket_ctx is not passed, it safely defaults to the thread-isolated bucket.
+    """
+    # FIX: Dynamically resolve context if missing to prevent signature breaking
+    if bucket_ctx is None:
+        bucket_ctx = get_thread_bucket()
+
     to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
     cx, cy = to_utm.transform(center_lon, center_lat)
     half = extent_m / 2.0
     xmin, xmax, ymin, ymax = cx - half, cx + half, cy - half, cy + half
 
-    stack, matched = fetch_goes_local_stack(center_lon, center_lat, target_dt, extent_m, utm_crs)
+    # MODIFIED: Pass local_cache_dir down to the downstream stack fetcher
+    stack, matched = fetch_goes_local_stack(
+        center_lon, center_lat, target_dt, extent_m, utm_crs, 
+        local_cache_dir=local_cache_dir
+    )
 
     if not matched:
         return "no_scan", {}
     if np.all(stack == 0):
         return "all_zero", {}
 
-    upload_stack_as_geotiff(stack, xmin, ymin, xmax, ymax, utm_crs, bucket, f"{goes_prefix}.tif")
+    upload_stack_as_geotiff(stack, xmin, ymin, xmax, ymax, utm_crs, bucket_ctx, f"{goes_prefix}.tif")
     return "ok", {"zero_fraction": float(np.mean(stack == 0.0))}
 
 def resolve_landsat_target_dt(meta):
@@ -275,6 +300,31 @@ def resolve_landsat_target_dt(meta):
         except ValueError:
             pass
     return datetime.strptime(f"{meta['date']} 00:00:00", "%Y-%m-%d %H:%M:%S")
+
+_worker_bucket = None
+_worker_existing_blobs = None
+
+def _init_worker():
+    global bucket, ee, existing_blobs
+    import ee as _ee
+    from google.cloud import storage as _storage
+    from google.auth import default as _default
+    credentials, _ = _default()
+    _ee.Initialize(credentials=credentials, project='wildfire-irp')
+    storage_client = _storage.Client(credentials=credentials)
+    globals()['bucket'] = storage_client.bucket(BUCKET_NAME)
+    globals()['ee'] = _ee
+    globals()['existing_blobs'] = set(
+        b.name for b in globals()['bucket'].list_blobs(prefix=f"{OUTPUT_PREFIX}/")
+    )
+
+def get_thread_bucket():
+    """Returns a thread-isolated GCS bucket instance to prevent socket corruption."""
+    if not hasattr(_thread_local_storage, "bucket"):
+        # Explicitly initialize a fresh client and bucket for the calling thread
+        _thread_local_storage.client = storage.Client(credentials=credentials)
+        _thread_local_storage.bucket = _thread_local_storage.client.bucket(BUCKET_NAME)
+    return _thread_local_storage.bucket
 
 # ==========================================
 # Feature Extractors (GOES / VIIRS / COV)
@@ -426,101 +476,60 @@ def assign_viirs_cells(df, cell_extent_m=VIIRS_TARGET_EXTENT_M):
 
 def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
     peak_time = group_df.loc[group_df['frp'].idxmax(), 'acq_datetime']
-    
+
     target_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}"
     goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
     cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
     manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
 
     utm_crs = get_utm_epsg(center_lon, center_lat)
-    #target_roi = build_roi(center_lon, center_lat, VIIRS_TARGET_EXTENT_M, utm_crs)
     context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
 
-    # Calculate the bounding box metrics locally matching build_roi extent logic
-    # VIIRS_TARGET_EXTENT_M = 7680m
     half_extent = VIIRS_TARGET_EXTENT_M / 2.0
-
-    # Project center point to UTM
     transformer_to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
     cx_utm, cy_utm = transformer_to_utm.transform(center_lon, center_lat)
 
-    # Calculate tight matrix grid boundaries
     xmin = cx_utm - half_extent
     xmax = cx_utm + half_extent
     ymin = cy_utm - half_extent
     ymax = cy_utm + half_extent
-    
-    width = VIIRS_TARGET_PIXELS   # 7680 / 375 = 20 pixels
-    height = VIIRS_TARGET_PIXELS  # 20 pixels
-    actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS  # 384.0m — true pixel size given integer width
+
+    width = VIIRS_TARGET_PIXELS
+    height = VIIRS_TARGET_PIXELS
+    actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS
 
     target_path_tif = f"{target_prefix}.tif"
     if not gcs_exists(target_prefix):
         local_array = np.zeros((height, width), dtype=np.float32)
-        
-        # Convert df points to UTM
+
         gdf = gpd.GeoDataFrame(
-            group_df, 
-            geometry=gpd.points_from_xy(group_df.longitude, group_df.latitude), 
+            group_df,
+            geometry=gpd.points_from_xy(group_df.longitude, group_df.latitude),
             crs="EPSG:4326"
         ).to_crs(utm_crs)
-        
-        # Max Reducer simulation: sort ascending so highest values overwrite cells last
+
         gdf = gdf.sort_values(by='frp', ascending=True)
         for _, row in gdf.iterrows():
             px, py = row.geometry.x, row.geometry.y
-            
             col = int(np.floor((px - xmin) / actual_scale_m))
             row_idx = int(np.floor((ymax - py) / actual_scale_m))
-            
             if 0 <= col < width and 0 <= row_idx < height:
                 local_array[row_idx, col] = row['frp']
-                
-        # Write directly to an in-memory stream as a valid GeoTIFF
+
         transform = rasterio.transform.from_bounds(xmin, ymin, xmax, ymax, width, height)
         mem_file = io.BytesIO()
-        with rasterio.open(
-            mem_file, 'w', driver='GTiff',
-            height=height, width=width, count=1,
-            dtype='float32', crs=utm_crs, transform=transform
-        ) as dst:
-            dst.write(local_array, 1)
-            
-        # Stream GeoTIFF file directly to GCS bucket
+        with GDAL_IO_LOCK:
+            with rasterio.open(
+                mem_file, 'w', driver='GTiff',
+                height=height, width=width, count=1,
+                dtype='float32', crs=utm_crs, transform=transform
+            ) as dst:
+                dst.write(local_array, 1)
+
         mem_file.seek(0)
         bucket.blob(target_path_tif).upload_from_file(mem_file, content_type='image/tiff')
         print(f"    [LOCAL SAVED] VIIRS local raster target: {cluster_id}")
 
-        '''features = [
-            ee.Feature(ee.Geometry.Point([float(row['longitude']), float(row['latitude'])]), {'frp': float(row['frp'])})
-            for _, row in group_df.iterrows()
-        ]
-        viirs_img = (ee.FeatureCollection(features)
-                     .reduceToImage(properties=['frp'], reducer=ee.Reducer.max())
-                     .clip(target_roi)
-                     .unmask(0)
-                     .rename('VIIRS_FRP'))
-        wait_for_queue_slot()
-        ee.batch.Export.image.toCloudStorage(
-            image=viirs_img, description=f"viirs_frp_{cluster_id}",
-            bucket=BUCKET_NAME, fileNamePrefix=target_prefix, region=target_roi,
-            scale=VIIRS_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
-        ).start()
-        print(f"    [DISPATCHED] VIIRS target export: {cluster_id}")'''
-
-    '''goes_blob = bucket.blob(f"{goes_prefix}.tif")
-    goes_dispatched = goes_blob.exists()
-    if not goes_dispatched:
-        goes_img = fetch_goes_fire_features(context_roi, center_lon, ee_viirs_date)
-        wait_for_queue_slot()
-        ee.batch.Export.image.toCloudStorage(
-            image=goes_img, description=f"goes_vx_{cluster_id}",
-            bucket=BUCKET_NAME, fileNamePrefix=goes_prefix, region=context_roi,
-            scale=GOES_NATIVE_SCALE_M, crs=utm_crs, fileFormat='GeoTIFF'
-        ).start()
-        print(f"    [DISPATCHED] GOES context export: {cluster_id}")
-        goes_dispatched = True'''
-    
     goes_blob = bucket.blob(f"{goes_prefix}.tif")
     if goes_blob.exists():
         goes_status = "ok"
@@ -545,13 +554,11 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
         print(f"    [DISPATCHED] Covariate export: {cluster_id}")
 
     write_manifest(manifest_path, {
-        "id": cluster_id,
-        "branch": "viirs",
+        "id": cluster_id, "branch": "viirs",
         "date": group_df['acq_date'].iloc[0].strftime("%Y-%m-%d"),
         "peak_datetime": peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "center": [center_lon, center_lat],
-        "crs": utm_crs,
-        "target_pixels_nominal": VIIRS_TARGET_PIXELS,  # 7500m/375m=20 exactly
+        "center": [center_lon, center_lat], "crs": utm_crs,
+        "target_pixels_nominal": VIIRS_TARGET_PIXELS,
         "target_extent_m": VIIRS_TARGET_EXTENT_M,
         "target_scale_m": actual_scale_m,
         "context_ratio": VIIRS_CONTEXT_RATIO,
@@ -569,6 +576,236 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
         }
     })
 
+def download_goes_and_upload_target(item):
+    # 1. Unpack item parameters safely, ignoring the mismatched positions
+    cluster_id, center_lon, center_lat, peak_time, utm_crs = item[:5]
+    mem_file, n_detections, max_frp, goes_prefix, manifest_path = item[5:]
+    
+    # FIX: Explicitly resolve the actual thread-isolated GCS bucket context
+    proc_bucket = get_thread_bucket()
+    
+    # 3. Create the isolated thread scratch folder
+    thread_scratch = tempfile.mkdtemp(prefix=f"goes_task_{cluster_id}_", dir="/var/tmp")
+    
+    try:
+        target_dt = peak_time.to_pydatetime() if hasattr(peak_time, "to_pydatetime") else peak_time
+        
+        # 4. Invoke the local fetcher with the actual bucket context
+        goes_status, goes_info = fetch_and_validate_goes_local(
+            center_lon=center_lon, 
+            center_lat=center_lat, 
+            target_dt=target_dt, 
+            extent_m=VIIRS_CONTEXT_EXTENT_M, 
+            utm_crs=utm_crs, 
+            bucket_ctx=proc_bucket,
+            goes_prefix=goes_prefix,
+            local_cache_dir=thread_scratch
+        )
+        goes_dispatched = (goes_status == "ok")
+
+        # 5. Upload the target VIIRS raster (from mem_file) to GCS
+        target_path_tif = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}.tif"
+        mem_file.seek(0)
+        proc_bucket.blob(target_path_tif).upload_from_file(mem_file, content_type='image/tiff')
+
+        # 6. Write the manifest metadata file to GCS
+        manifest_data = {
+            "id": cluster_id, 
+            "branch": "viirs",
+            "peak_datetime": peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "center": [center_lon, center_lat], 
+            "crs": utm_crs,
+            "target_pixels_nominal": VIIRS_TARGET_PIXELS,
+            "target_extent_m": VIIRS_TARGET_EXTENT_M,
+            "target_scale_m": VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS,
+            "context_ratio": VIIRS_CONTEXT_RATIO,
+            "context_extent_m": VIIRS_CONTEXT_EXTENT_M,
+            "goes_scale_m": GOES_NATIVE_SCALE_M,
+            "covariate_scale_m": LANDSAT_GRID_SCALE,
+            "n_detections": int(n_detections),
+            "max_frp": float(max_frp),
+            "goes_dispatched": goes_dispatched,
+            "goes_fetch_status": goes_status,
+            "paths": {
+                "target": target_path_tif,
+                "goes_input": f"{goes_prefix}.tif",
+                "covariates": f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}.tif",
+            }
+        }
+        
+        blob = proc_bucket.blob(manifest_path)
+        blob.upload_from_string(json.dumps(manifest_data, indent=2), content_type='application/json')
+        
+        return "ok"
+
+    except Exception as e:
+        return f"Fail GOES: {e}"
+        
+    finally:
+        # Clean up disk space safely
+        if os.path.exists(thread_scratch):
+            shutil.rmtree(thread_scratch)
+    
+
+def _build_and_process_viirs(key, group, cell_deg):
+    # Isolate GDAL context per thread to prevent memory corruption
+    with rasterio.Env(): 
+        overpass_window, cell_lon, cell_lat = key
+        center_lon = (cell_lon + 0.5) * cell_deg
+        center_lat = (cell_lat + 0.5) * cell_deg
+
+        VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
+        peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
+        time_spread = (group['acq_datetime'] - peak_time).abs()
+        cluster_group = group[time_spread <= pd.Timedelta(minutes=int(VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN))]
+
+        cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
+        process_viirs_cluster(cluster_id, center_lon, center_lat, cluster_group)
+        return cluster_id
+
+'''def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
+    if region_bbox is None:
+        print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
+        return
+
+    print(f"\nProcessing decoupled GOES -> VIIRS branch (region={region_bbox})...")
+    pool = df_viirs[
+        (df_viirs['longitude'] >= region_bbox[0]) & (df_viirs['longitude'] <= region_bbox[2]) &
+        (df_viirs['latitude'] >= region_bbox[1]) & (df_viirs['latitude'] <= region_bbox[3])
+    ]
+    print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
+
+    df, cell_deg = assign_viirs_cells(pool)
+    groups = list(df.groupby(['overpass_window', 'cell_lon', 'cell_lat']))
+    
+    # [Your Stratified Sampling Logic remains unchanged here...]
+    TARGET_PER_MONTH = max(1, max_clusters // 12)
+    NUM_BINS = 4
+    cluster_meta = []
+    for idx, (key, group) in enumerate(groups):
+        cluster_meta.append({'array_idx': idx, 'month': key[0].month, 'n_detections': len(group)})
+    df_meta = pd.DataFrame(cluster_meta)
+    selected_indices = []
+    for month, month_df in df_meta.groupby('month'):
+        try:
+            month_df = month_df.copy()
+            month_df['bin'] = pd.qcut(month_df['n_detections'], q=NUM_BINS, labels=False, duplicates='drop')
+        except ValueError:
+            month_df['bin'] = month_df['n_detections'] % NUM_BINS
+        bins = month_df['bin'].unique()
+        samples_per_bin = TARGET_PER_MONTH // len(bins)
+        for b in bins:
+            bin_df = month_df[month_df['bin'] == b]
+            if len(bin_df) <= samples_per_bin:
+                selected_indices.extend(bin_df['array_idx'].tolist())
+            else:
+                selected_indices.extend(bin_df.sample(n=samples_per_bin, random_state=42)['array_idx'].tolist())
+    groups = [groups[i] for i in selected_indices]
+    print(f"Stratification complete. Retained {len(groups)} balanced clusters across the year.")
+
+    # -----------------------------------------------------------------
+    # STEP 1: SEQUENTIAL SPATIAL PRE-PROCESSING (No multi-thread crash)
+    # -----------------------------------------------------------------
+    print("Pre-processing raster coordinates and spatial bounds sequentially...")
+    io_work_items = []
+    
+    with rasterio.Env(): # Wraps the sequential raster initialization loop securely
+        for key, group in groups:
+            overpass_window, cell_lon, cell_lat = key
+            center_lon = (cell_lon + 0.5) * cell_deg
+            center_lat = (cell_lat + 0.5) * cell_deg
+
+            VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
+            peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
+            time_spread_mins = (group['acq_datetime'] - peak_time).dt.total_seconds().abs() / 60.0
+            cluster_group = group[time_spread_mins <= float(VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
+
+            cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
+            utm_crs = get_utm_epsg(center_lon, center_lat)
+            context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
+
+            # Build in-memory target array
+            half_extent = VIIRS_TARGET_EXTENT_M / 2.0
+            transformer_to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+            cx_utm, cy_utm = transformer_to_utm.transform(center_lon, center_lat)
+
+            xmin, xmax = cx_utm - half_extent, cx_utm + half_extent
+            ymin, ymax = cy_utm - half_extent, cy_utm + half_extent
+            width = height = VIIRS_TARGET_PIXELS
+            actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS
+
+            local_array = np.zeros((height, width), dtype=np.float32)
+            gdf = gpd.GeoDataFrame(
+                cluster_group,
+                geometry=gpd.points_from_xy(cluster_group.longitude, cluster_group.latitude),
+                crs="EPSG:4326"
+            ).to_crs(utm_crs)
+
+            gdf = gdf.sort_values(by='frp', ascending=True)
+            for _, row in gdf.iterrows():
+                px, py = row.geometry.x, row.geometry.y
+                col = int(np.floor((px - xmin) / actual_scale_m))
+                row_idx = int(np.floor((ymax - py) / actual_scale_m))
+                if 0 <= col < width and 0 <= row_idx < height:
+                    local_array[row_idx, col] = row['frp']
+
+            transform = rasterio.transform.from_bounds(xmin, ymin, xmax, ymax, width, height)
+            mem_file = io.BytesIO()
+            with rasterio.open(
+                mem_file, 'w', driver='GTiff', height=height, width=width, count=1,
+                dtype='float32', crs=utm_crs, transform=transform
+            ) as dst:
+                dst.write(local_array, 1)
+            mem_file.seek(0)
+
+            io_work_items.append((
+                cluster_id, center_lon, center_lat, peak_time, utm_crs, context_roi, 
+                mem_file, int(len(cluster_group)), float(cluster_group['frp'].max())
+            ))
+
+    # -----------------------------------------------------------------
+    # STEP 2: FULLY DECOUPLED PHASED PIPELINE (CRASH PROOF)
+    # -----------------------------------------------------------------
+    network_work_items = []
+    
+    print(f"\n[PHASE 1] Rapidly dispatching {len(io_work_items)} tasks to Earth Engine...")
+    
+    for idx, item in enumerate(io_work_items):
+        cluster_id = item[0]
+        center_lon, center_lat = item[1], item[2]
+        utm_crs, context_roi = item[4], item[5]
+        
+        goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
+        manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
+        cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
+
+        # 1. Dispatch to Earth Engine sequentially on the main thread (No threads = No Segfault)
+        try:
+            # Quick lookahead: only query GCS if absolutely necessary, or let EE overwrite
+            cov_blobs = list(bucket.list_blobs(prefix=cov_prefix, max_results=1))
+            if len(cov_blobs) == 0:
+                # REMOVED wait_for_queue_slot() here to avoid stalling Phase 1. 
+                # If your EE account limits are hit, EE will throw an exception we handle below.
+                ee.batch.Export.image.toCloudStorage(
+                    image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
+                    bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
+                    scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
+                ).start()
+                
+                if idx % 50 == 0:
+                    print(f"    [EE PIPELINE] Registered {idx}/{len(io_work_items)} tasks with EE backend.")
+        except Exception as e:
+            # If Earth Engine queue limits are hit, catch it and keep going so the downloader isn't blocked
+            if "Total number of tasks" in str(e) or "limit" in str(e).lower():
+                pass 
+            else:
+                print(f"    [!] EE Registration warning for {cluster_id}: {e}")
+
+        # Assemble items for the download phase
+        network_work_items.append((
+            cluster_id, center_lon, center_lat, item[3], utm_crs,
+            item[6], item[7], item[8], goes_prefix, manifest_path
+        ))'''
 def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
     if region_bbox is None:
         print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
@@ -584,23 +821,13 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
     df, cell_deg = assign_viirs_cells(pool)
     groups = list(df.groupby(['overpass_window', 'cell_lon', 'cell_lat']))
     
-    # -----------------------------------------------------------------
-    # STRATIFIED SAMPLING REPLACEMENT
-    # -----------------------------------------------------------------
-    # Divide your overall cluster budget evenly across the 12 months
+    # Stratified Sampling Logic
     TARGET_PER_MONTH = max(1, max_clusters // 12)
-    NUM_BINS = 4  # Splits clusters into 4 size-based quantiles per month
-    
-    print(f"Applying monthly size-stratification (Targeting ~{TARGET_PER_MONTH} clusters/month)...")
+    NUM_BINS = 4
     cluster_meta = []
     for idx, (key, group) in enumerate(groups):
-        cluster_meta.append({
-            'array_idx': idx,
-            'month': key[0].month,
-            'n_detections': len(group)
-        })
+        cluster_meta.append({'array_idx': idx, 'month': key[0].month, 'n_detections': len(group)})
     df_meta = pd.DataFrame(cluster_meta)
-    
     selected_indices = []
     for month, month_df in df_meta.groupby('month'):
         try:
@@ -608,54 +835,190 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
             month_df['bin'] = pd.qcut(month_df['n_detections'], q=NUM_BINS, labels=False, duplicates='drop')
         except ValueError:
             month_df['bin'] = month_df['n_detections'] % NUM_BINS
-            
         bins = month_df['bin'].unique()
         samples_per_bin = TARGET_PER_MONTH // len(bins)
-        
         for b in bins:
             bin_df = month_df[month_df['bin'] == b]
-            n_available = len(bin_df)
-            
-            if n_available <= samples_per_bin:
+            if len(bin_df) <= samples_per_bin:
                 selected_indices.extend(bin_df['array_idx'].tolist())
             else:
-                sampled_bin = bin_df.sample(n=samples_per_bin, random_state=42)
-                selected_indices.extend(sampled_bin['array_idx'].tolist())
-                
-    # Overwrite the candidate list with only your stratified subset
+                selected_indices.extend(bin_df.sample(n=samples_per_bin, random_state=42)['array_idx'].tolist())
     groups = [groups[i] for i in selected_indices]
     print(f"Stratification complete. Retained {len(groups)} balanced clusters across the year.")
 
-    VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
-    
-    def _build_and_process(key, group):
-        overpass_window, cell_lon, cell_lat = key
-    
-        # Compute geographic centre from cell indices
-        center_lon = (cell_lon + 0.5) * cell_deg
-        center_lat = (cell_lat + 0.5) * cell_deg
-    
-        # Drop detections more than 15 min from the peak-FRP detection's time
-        peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
-        time_spread = (group['acq_datetime'] - peak_time).abs()
-        group = group[time_spread <= pd.Timedelta(minutes=VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
-    
-        # Representative datetime from peak-FRP detection
-        #ee_viirs_date = ee.Date(peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    
-        cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
-        process_viirs_cluster(cluster_id, center_lon, center_lat, group)
-        return cluster_id
+    # -----------------------------------------------------------------
+    # RESUME & PAIR VERIFICATION LOGIC (NEW)
+    # -----------------------------------------------------------------
+    print("Checking GCS cache for existing completed pairs...")
+    valid_groups = []
+    completed_count = 0
 
-    print(f"Dispatching {len(groups)} VIIRS clusters with {dispatch_workers} workers...")
-    with ThreadPoolExecutor(max_workers=dispatch_workers) as executor:
-        futures = {executor.submit(_build_and_process, key, group): key for key, group in groups}
-        for future in as_completed(futures):
-            key = futures[future]
+    for key, group in groups:
+        overpass_window, cell_lon, cell_lat = key
+        cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
+        
+        # Define paths matching exactly how they upload to GCS
+        target_path = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}.tif"
+        goes_path = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}.tif"
+        manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
+        
+        # Verify strict structural pair completeness via the global cache set
+        if (target_path in existing_blobs) and (goes_path in existing_blobs) and (manifest_path in existing_blobs):
+            completed_count += 1
+            continue  # Skip fully complete clusters
+            
+        valid_groups.append((key, group))
+
+    print(f"Found {completed_count} already fully completed dataset pairs in GCS.")
+    
+    # Calculate exactly how many extra clusters are needed to fulfill max_clusters
+    remaining_budget = max(0, max_clusters - completed_count)
+    print(f"Remaining allocation for this run: {remaining_budget} clusters (Total Target: {max_clusters})")
+    
+    groups = valid_groups[:remaining_budget]
+    if not groups:
+        print("Pipeline is completely up to date. No extra processing required.")
+        return
+
+    # -----------------------------------------------------------------
+    # STEP 1: SEQUENTIAL SPATIAL PRE-PROCESSING
+    # -----------------------------------------------------------------
+    print(f"Pre-processing raster coordinates and spatial bounds for the remaining {len(groups)} clusters...")
+    io_work_items = []
+    
+    with rasterio.Env():
+        for key, group in groups:
+            overpass_window, cell_lon, cell_lat = key
+            center_lon = (cell_lon + 0.5) * cell_deg
+            center_lat = (cell_lat + 0.5) * cell_deg
+
+            VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
+            peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
+            time_spread_mins = (group['acq_datetime'] - peak_time).dt.total_seconds().abs() / 60.0
+            cluster_group = group[time_spread_mins <= float(VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
+
+            cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
+            utm_crs = get_utm_epsg(center_lon, center_lat)
+            context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
+
+            half_extent = VIIRS_TARGET_EXTENT_M / 2.0
+            transformer_to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+            cx_utm, cy_utm = transformer_to_utm.transform(center_lon, center_lat)
+
+            xmin, xmax = cx_utm - half_extent, cx_utm + half_extent
+            ymin, ymax = cy_utm - half_extent, cy_utm + half_extent
+            width = height = VIIRS_TARGET_PIXELS
+            actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS
+
+            local_array = np.zeros((height, width), dtype=np.float32)
+            gdf = gpd.GeoDataFrame(
+                cluster_group,
+                geometry=gpd.points_from_xy(cluster_group.longitude, cluster_group.latitude),
+                crs="EPSG:4326"
+            ).to_crs(utm_crs)
+
+            gdf = gdf.sort_values(by='frp', ascending=True)
+            for _, row in gdf.iterrows():
+                px, py = row.geometry.x, row.geometry.y
+                col = int(np.floor((px - xmin) / actual_scale_m))
+                row_idx = int(np.floor((ymax - py) / actual_scale_m))
+                if 0 <= col < width and 0 <= row_idx < height:
+                    local_array[row_idx, col] = row['frp']
+
+            transform = rasterio.transform.from_bounds(xmin, ymin, xmax, ymax, width, height)
+            mem_file = io.BytesIO()
+            with rasterio.open(
+                mem_file, 'w', driver='GTiff', height=height, width=width, count=1,
+                dtype='float32', crs=utm_crs, transform=transform
+            ) as dst:
+                dst.write(local_array, 1)
+            mem_file.seek(0)
+
+            io_work_items.append((
+                cluster_id, center_lon, center_lat, peak_time, utm_crs, context_roi, 
+                mem_file, int(len(cluster_group)), float(cluster_group['frp'].max())
+            ))
+
+    # -----------------------------------------------------------------
+    # STEP 2: FULLY DECOUPLED PHASED PIPELINE
+    # -----------------------------------------------------------------
+    network_work_items = []
+    print(f"\n[PHASE 1] Rapidly dispatching {len(io_work_items)} tasks to Earth Engine...")
+    
+    for idx, item in enumerate(io_work_items):
+        cluster_id = item[0]
+        center_lon, center_lat = item[1], item[2]
+        utm_crs, context_roi = item[4], item[5]
+        
+        goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
+        manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
+        cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
+
+        try:
+            cov_blobs = list(bucket.list_blobs(prefix=cov_prefix, max_results=1))
+            if len(cov_blobs) == 0:
+                ee.batch.Export.image.toCloudStorage(
+                    image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
+                    bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
+                    scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
+                ).start()
+                
+                if idx % 50 == 0:
+                    print(f"    [EE PIPELINE] Registered {idx}/{len(io_work_items)} tasks with EE backend.")
+        except Exception as e:
+            if "Total number of tasks" in str(e) or "limit" in str(e).lower():
+                pass 
+            else:
+                print(f"    [!] EE Registration warning for {cluster_id}: {e}")
+
+        network_work_items.append((
+            cluster_id, center_lon, center_lat, item[3], utm_crs,
+            item[6], item[7], item[8], goes_prefix, manifest_path
+        ))
+
+    print(f"\n[PHASE 2] Starting concurrent thread-pool storage I/O for {len(network_work_items)} clusters...")
+    import concurrent.futures
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {
+            executor.submit(download_goes_and_upload_target, item): item[0] 
+            for item in network_work_items
+        }
+        
+        for idx, future in enumerate(concurrent.futures.as_completed(futures)):
+            c_id = futures[future]
             try:
-                future.result()
+                status = future.result()
+                if status == "ok":
+                    print(f"    [{idx+1}/{len(network_work_items)}] [SUCCESS] Saved target, GOES, and manifest: {c_id}")
+                else:
+                    print(f"    [{idx+1}/{len(network_work_items)}] [!] Storage I/O Error on {c_id}: {status}")
             except Exception as e:
-                print(f"    [!] Skipping VIIRS cluster {key}: {e}")
+                print(f"    [{idx+1}/{len(network_work_items)}] [!] Thread unexpected crash for cluster {c_id}: {e}")
+
+    print(f"\n[PHASE 2] Starting concurrent thread-pool storage I/O for {len(network_work_items)} clusters...")
+    
+    # max_workers=20 allows 20 network requests to run in parallel on the cloud backbone
+    import concurrent.futures
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        # Submit all tasks to the thread pool
+        futures = {
+            executor.submit(download_goes_and_upload_target, item): item[0] 
+            for item in network_work_items
+        }
+        
+        # Process outcomes as they complete
+        for idx, future in enumerate(concurrent.futures.as_completed(futures)):
+            c_id = futures[future]
+            try:
+                status = future.result()
+                if status == "ok":
+                    print(f"    [{idx+1}/{len(network_work_items)}] [SUCCESS] Saved target, GOES, and manifest: {c_id}")
+                else:
+                    print(f"    [{idx+1}/{len(network_work_items)}] [!] Storage I/O Error on {c_id}: {status}")
+            except Exception as e:
+                print(f"    [{idx+1}/{len(network_work_items)}] [!] Thread unexpected crash for cluster {c_id}: {e}")
 
 # ==========================================
 # Master Loop: Landsat Branch
@@ -820,7 +1183,7 @@ if __name__ == "__main__":
 
     MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
     MAX_TIFFS_PER_SUB = 10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
-    MAX_VIIRS_CLUSTERS = 30#12_000
+    MAX_VIIRS_CLUSTERS = 6_000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 

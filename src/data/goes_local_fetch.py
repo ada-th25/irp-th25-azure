@@ -18,6 +18,7 @@ from google.cloud import storage
 GOES_TEMPORAL_GUARD_MIN = 60
 GOES_SCAN_SEARCH_HOURS = 3
 GOES_CACHE_DIR = os.path.join(tempfile.gettempdir(), "goes_scan_cache")
+GOES_CACHE_MAX_BYTES = 20 * 1024 ** 3  # 20 GB cap; evict oldest-accessed scans beyond this
 os.makedirs(GOES_CACHE_DIR, exist_ok=True)
 
 _storage_client = storage.Client()
@@ -26,7 +27,68 @@ _storage_client = storage.Client()
 # Prevents two threads racing to download the same full-disk scan.
 _scan_cache = {}
 _scan_cache_lock = threading.Lock()
-_netcdf_io_lock = threading.Lock()
+GDAL_IO_LOCK = threading.Lock()
+_netcdf_io_lock = GDAL_IO_LOCK
+_in_use_paths = {}
+
+
+def _mark_in_use(path):
+    with _scan_cache_lock:
+        _in_use_paths[path] = _in_use_paths.get(path, 0) + 1
+ 
+ 
+def _unmark_in_use(path):
+    with _scan_cache_lock:
+        remaining = _in_use_paths.get(path, 0) - 1
+        if remaining <= 0:
+            _in_use_paths.pop(path, None)
+        else:
+            _in_use_paths[path] = remaining
+
+def _evict_lru_if_needed(incoming_path, cache_dir=GOES_CACHE_DIR):
+    """Keep active cache directory under GOES_CACHE_MAX_BYTES by deleting oldest-accessed
+    .nc files first. Runs under _scan_cache_lock, so it never races a download.
+    Skips the file currently being written (incoming_path) and any in-flight
+    .part files."""
+    try:
+        entries = []
+        total = 0
+        # MODIFIED: Scan the resolved active directory
+        for fname in os.listdir(cache_dir):
+            if not fname.endswith(".nc"):
+                continue
+            fpath = os.path.join(cache_dir, fname)
+            if fpath == incoming_path:
+                continue
+            if _in_use_paths.get(fpath, 0) > 0:
+                continue  # currently being read by another thread, don't evict
+            try:
+                st = os.stat(fpath)
+            except FileNotFoundError:
+                continue
+            total += st.st_size
+            entries.append((st.st_atime, st.st_size, fpath))
+ 
+        if total <= GOES_CACHE_MAX_BYTES:
+            return
+ 
+        # Oldest-accessed first
+        entries.sort(key=lambda e: e[0])
+        for atime, size, fpath in entries:
+            if total <= GOES_CACHE_MAX_BYTES:
+                break
+            try:
+                os.remove(fpath)
+                total -= size
+                # Drop it from the in-memory cache map too so callers re-download
+                # rather than returning a path to a now-deleted file.
+                stale_keys = [k for k, v in _scan_cache.items() if v == fpath]
+                for k in stale_keys:
+                    _scan_cache.pop(k, None)
+            except FileNotFoundError:
+                continue
+    except Exception as e:
+        print(f"  [WARN] GOES cache eviction failed: {e}")
 
 
 def _list_candidate_blobs(target_utc_dt, satellite="G16"):
@@ -68,7 +130,7 @@ def find_closest_goes_blob(target_utc_dt, satellite="G16"):
 
 def _reproject_bands(nc_path, xmin, ymin, xmax, ymax, width, height, dst_crs,
                      target_shape=None, target_transform=None):
-    # Serialized: netCDF4/HDF5 + GDAL are not safe to touch concurrently
+    # Serialised: netCDF4/HDF5 + GDAL are not safe to touch concurrently
     # from multiple threads (silent segfault otherwise, no traceback).
     with _netcdf_io_lock, xr.open_dataset(nc_path, mask_and_scale=True) as ds:
         # Sort coordinates to match standard grid indexing
@@ -111,21 +173,24 @@ def _reproject_bands(nc_path, xmin, ymin, xmax, ymax, width, height, dst_crs,
         stack[~np.isfinite(stack)] = 0.0
         return stack
 
+
 def fetch_goes_local_stack(center_lon, center_lat, target_dt, extent_m, utm_crs,
-                            satellites=("G16",), target_shape=None, target_transform=None):
-    to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-    cx, cy = to_utm.transform(center_lon, center_lat)
+                            satellites=("G16",), target_shape=None, target_transform=None,
+                            local_cache_dir=None):
+    with GDAL_IO_LOCK:
+        to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+        cx, cy = to_utm.transform(center_lon, center_lat)
     half = extent_m / 2.0
     xmin, xmax = cx - half, cx + half
     ymin, ymax = cy - half, cy + half
-
+ 
     # Use target_shape dimensions if explicitly provided
     if target_shape is not None:
         height, width = target_shape
     else:
         scale_m = 2000
         width = height = max(1, int(round(extent_m / scale_m)))
-
+ 
     best = None  # (time_diff, scan_dt, blob, satellite)
     for sat in satellites:
         scan_dt, blob, time_diff = find_closest_goes_blob(target_dt, satellite=sat)
@@ -133,18 +198,23 @@ def fetch_goes_local_stack(center_lon, center_lat, target_dt, extent_m, utm_crs,
             continue
         if best is None or time_diff < best[0]:
             best = (time_diff, scan_dt, blob, sat)
-
+ 
     if best is None or best[0] > datetime.timedelta(minutes=GOES_TEMPORAL_GUARD_MIN):
         return np.zeros((3, height, width), dtype=np.float32), False
-
+ 
     time_diff, scan_dt, blob, sat = best
-    nc_path = _download_scan_cached(blob, scan_dt, sat)
     
-    # Pass along the structural constraints
-    stack = _reproject_bands(
-        nc_path, xmin, ymin, xmax, ymax, width, height, utm_crs,
-        target_shape=target_shape, target_transform=target_transform
-    )
+    # MODIFIED: Pass local_cache_dir down to cache downloader
+    nc_path = _download_scan_cached(blob, scan_dt, sat, local_cache_dir=local_cache_dir)
+ 
+    try:
+        # Pass along the structural constraints
+        stack = _reproject_bands(
+            nc_path, xmin, ymin, xmax, ymax, width, height, utm_crs,
+            target_shape=target_shape, target_transform=target_transform
+        )
+    finally:
+        _unmark_in_use(nc_path)
     return stack, True
 
 
@@ -157,7 +227,7 @@ def upload_stack_as_geotiff(stack, xmin, ymin, xmax, ymax, crs, bucket, dest_blo
     transform = from_bounds(xmin, ymin, xmax, ymax, width, height)
 
     mem_file = _io.BytesIO()
-    with rasterio.open(
+    with GDAL_IO_LOCK, rasterio.open(
         mem_file, "w", driver="GTiff",
         height=height, width=width, count=bands,
         dtype="float32", crs=crs, transform=transform,
@@ -179,7 +249,8 @@ def fetch_and_upload_goes_local(center_lon, center_lat, target_dt, extent_m, utm
     Returns True if a real (non-fallback) scan was used, False if it was dropped.
     """
     to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-    cx, cy = to_utm.transform(center_lon, center_lat)
+    with GDAL_IO_LOCK:
+        cx, cy = to_utm.transform(center_lon, center_lat)
     half = extent_m / 2.0
     xmin, xmax, ymin, ymax = cx - half, cx + half, cy - half, cy + half
 
@@ -196,21 +267,37 @@ def fetch_and_upload_goes_local(center_lon, center_lat, target_dt, extent_m, utm
 
     return matched
 
-def _download_scan_cached(blob, scan_dt, satellite):
-    scan_key = (satellite, scan_dt.strftime("%Y%m%dT%H%M%S"))
 
+def _download_scan_cached(blob, scan_dt, satellite, local_cache_dir=None):
+    """Returns a local path with its in-use refcount already incremented.
+    Callers MUST call _unmark_in_use(path) when done reading it."""
+    scan_key = (satellite, scan_dt.strftime("%Y%m%dT%H%M%S"))
+    
+    # MODIFIED: Fallback to global config if thread-isolated path isn't provided
+    cache_dir = local_cache_dir if local_cache_dir is not None else GOES_CACHE_DIR
+ 
     with _scan_cache_lock:
         cached_path = _scan_cache.get(scan_key)
         if cached_path and os.path.exists(cached_path) and _is_valid_nc(cached_path):
+            os.utime(cached_path, None)  # mark as recently used for LRU eviction
+            _in_use_paths[cached_path] = _in_use_paths.get(cached_path, 0) + 1
             return cached_path
-        local_path = os.path.join(GOES_CACHE_DIR, f"{satellite}_{scan_key[1]}.nc")
+        
+        # MODIFIED: Use determined cache_dir
+        local_path = os.path.join(cache_dir, f"{satellite}_{scan_key[1]}.nc")
         _scan_cache[scan_key] = local_path
-
+        # Make room before downloading a new scan, so the cache dir stays
+        # bounded regardless of how many distinct scans a full run touches.
+        _evict_lru_if_needed(local_path, cache_dir=cache_dir)
+        # Reserve it as in-use immediately so a concurrent eviction (triggered
+        # by another thread's download) can never delete it out from under us.
+        _in_use_paths[local_path] = _in_use_paths.get(local_path, 0) + 1
+ 
     if not os.path.exists(local_path) or not _is_valid_nc(local_path):
         tmp_path = local_path + ".part"
         blob.download_to_filename(tmp_path)
         os.replace(tmp_path, local_path)
-
+ 
     return local_path
 
 
