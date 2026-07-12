@@ -1,3 +1,7 @@
+"""
+Usage example: python src/train.py --config experiments/e2_haunet_cascaded_stage1_test.YAML
+"""
+
 import argparse
 import csv
 import os
@@ -92,6 +96,17 @@ def train_one_epoch(
         optimiser.zero_grad()
         logits = model(inp)                    # (B, 1, 256, 256)
         loss = criterion(logits, target)
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"\n[NaN/Inf DETECTED] batch {batch_idx}, sample_ids: {batch['sample_id']}")
+            print(f"  input   range: {inp.min().item():.4f} to {inp.max().item():.4f}")
+            print(f"  target  range: {target.min().item():.4f} to {target.max().item():.4f}")
+            print(f"  logits  range: {logits.min().item():.4f} to {logits.max().item():.4f}")
+            print(f"  logits  has nan: {torch.isnan(logits).any().item()}, has inf: {torch.isinf(logits).any().item()}")
+            print(f"  covariates range: {batch['covariates'].min().item():.4f} to {batch['covariates'].max().item():.4f}")
+            print(f"  goes range: {batch['goes'].min().item():.4f} to {batch['goes'].max().item():.4f}")
+            raise SystemExit("Stopping at first NaN/Inf loss for debugging.")
+
         loss.backward()
 
         if grad_clip > 0:

@@ -191,6 +191,9 @@ class WildfireDataset(Dataset):
         target = self._read_gcs_raster(paths["target"])
         goes = self._read_gcs_raster(paths["goes_input"])
         cov = self._read_gcs_raster(paths["covariates"])
+
+        cov[0] = cov[0] / 1000.0          # DEM in km instead of meters
+        cov[1] = cov[1] / 100.0           # land cover code roughly to [0,1]
     
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
         goes = F.interpolate(
@@ -225,6 +228,9 @@ class WildfireDataset(Dataset):
                 size=self.target_size,
                 mode="nearest",
             ).squeeze(0)                # (1, 256, 256) or (1, 20, 20)
+
+        if self.branch == "viirs":
+            target = (target > 0).float()
     
         # Concatenate upsampled GOES with covariates into the model input tensor.
         inp = torch.cat([goes_up, cov], dim=0)   # (5, 256, 256) or (5, 20, 20)
