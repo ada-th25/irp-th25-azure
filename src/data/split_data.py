@@ -1,3 +1,7 @@
+"""
+Usage example: python src/data/split_data.py --branch viirs --max-samples 500 --suffix 500_samples_test --overwrite
+"""
+
 import argparse
 from html import parser
 import json
@@ -11,7 +15,7 @@ from google.auth import default
 # Config
 # ------------------------------------------------------------------
 BUCKET_NAME = "wildfire-irp-data-th25"
-OUTPUT_PREFIX = "processed_dataset_r1"
+OUTPUT_PREFIX = "processed_dataset_gcp"
 TRAIN_RATIO = 0.80
 VAL_RATIO = 0.10
 # TEST_RATIO is implicit: 1 - TRAIN - VAL

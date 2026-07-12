@@ -10,8 +10,8 @@ experiment:
 
 data:
   bucket_name: wildfire-irp-data-th25
-  output_prefix: processed_dataset_r1
-  splits_dir: splits_dev500        # <- points at the subsampled 80/10/10 split,
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits_500_samples_test        # <- points at the subsampled 80/10/10 split,
                                    #    not the real 'splits/' full dataset
   goes_channels: 3                # C07, C14, GOES_TFI: unchanged by the resolution rework
   cov_channels: 2                 # DEM, land cover: unchanged by the resolution rework
@@ -29,7 +29,7 @@ training:
 
 checkpointing:
   checkpoint_dir: checkpoints_test
-  gcs_checkpoint_prefix: processed_dataset_r1/checkpoints_smoke/e2_haunet_viirs_cascaded_stage1_test
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints_smoke/e2_haunet_viirs_cascaded_stage1_test
   keep_last_n: 1                  # don't bother retaining history for a throwaway run
 
 logging:

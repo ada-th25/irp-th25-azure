@@ -1,3 +1,7 @@
+"""
+Usage: python -m src.utils.enrich_manifests --branch viirs
+"""
+
 import argparse
 import json
 from google.cloud import storage
@@ -5,7 +9,7 @@ from google.auth import default
 from src.data.validity import compute_validity
 
 BUCKET_NAME = "wildfire-irp-data-th25"
-OUTPUT_PREFIX = "processed_dataset_r1"
+OUTPUT_PREFIX = "processed_dataset_gcp"
 
 def enrich_branch(bucket, branch: str, dry_run: bool):
     prefix = f"{OUTPUT_PREFIX}/{branch}_pairs/manifest/"

@@ -612,6 +612,7 @@ def download_goes_and_upload_target(item):
         manifest_data = {
             "id": cluster_id, 
             "branch": "viirs",
+            "date": target_dt.strftime("%Y-%m-%d"),
             "peak_datetime": peak_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "center": [center_lon, center_lat], 
             "crs": utm_crs,
@@ -663,149 +664,7 @@ def _build_and_process_viirs(key, group, cell_deg):
         process_viirs_cluster(cluster_id, center_lon, center_lat, cluster_group)
         return cluster_id
 
-'''def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
-    if region_bbox is None:
-        print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
-        return
 
-    print(f"\nProcessing decoupled GOES -> VIIRS branch (region={region_bbox})...")
-    pool = df_viirs[
-        (df_viirs['longitude'] >= region_bbox[0]) & (df_viirs['longitude'] <= region_bbox[2]) &
-        (df_viirs['latitude'] >= region_bbox[1]) & (df_viirs['latitude'] <= region_bbox[3])
-    ]
-    print(f"VIIRS spatial pool for this region: {len(pool)} detections.")
-
-    df, cell_deg = assign_viirs_cells(pool)
-    groups = list(df.groupby(['overpass_window', 'cell_lon', 'cell_lat']))
-    
-    # [Your Stratified Sampling Logic remains unchanged here...]
-    TARGET_PER_MONTH = max(1, max_clusters // 12)
-    NUM_BINS = 4
-    cluster_meta = []
-    for idx, (key, group) in enumerate(groups):
-        cluster_meta.append({'array_idx': idx, 'month': key[0].month, 'n_detections': len(group)})
-    df_meta = pd.DataFrame(cluster_meta)
-    selected_indices = []
-    for month, month_df in df_meta.groupby('month'):
-        try:
-            month_df = month_df.copy()
-            month_df['bin'] = pd.qcut(month_df['n_detections'], q=NUM_BINS, labels=False, duplicates='drop')
-        except ValueError:
-            month_df['bin'] = month_df['n_detections'] % NUM_BINS
-        bins = month_df['bin'].unique()
-        samples_per_bin = TARGET_PER_MONTH // len(bins)
-        for b in bins:
-            bin_df = month_df[month_df['bin'] == b]
-            if len(bin_df) <= samples_per_bin:
-                selected_indices.extend(bin_df['array_idx'].tolist())
-            else:
-                selected_indices.extend(bin_df.sample(n=samples_per_bin, random_state=42)['array_idx'].tolist())
-    groups = [groups[i] for i in selected_indices]
-    print(f"Stratification complete. Retained {len(groups)} balanced clusters across the year.")
-
-    # -----------------------------------------------------------------
-    # STEP 1: SEQUENTIAL SPATIAL PRE-PROCESSING (No multi-thread crash)
-    # -----------------------------------------------------------------
-    print("Pre-processing raster coordinates and spatial bounds sequentially...")
-    io_work_items = []
-    
-    with rasterio.Env(): # Wraps the sequential raster initialization loop securely
-        for key, group in groups:
-            overpass_window, cell_lon, cell_lat = key
-            center_lon = (cell_lon + 0.5) * cell_deg
-            center_lat = (cell_lat + 0.5) * cell_deg
-
-            VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN = 15
-            peak_time = group.loc[group['frp'].idxmax(), 'acq_datetime']
-            time_spread_mins = (group['acq_datetime'] - peak_time).dt.total_seconds().abs() / 60.0
-            cluster_group = group[time_spread_mins <= float(VIIRS_INTRA_CLUSTER_MAX_SPREAD_MIN)]
-
-            cluster_id = f"{overpass_window.strftime('%Y%m%dT%H%M')}_{cell_lon}_{cell_lat}"
-            utm_crs = get_utm_epsg(center_lon, center_lat)
-            context_roi = build_roi(center_lon, center_lat, VIIRS_CONTEXT_EXTENT_M, utm_crs)
-
-            # Build in-memory target array
-            half_extent = VIIRS_TARGET_EXTENT_M / 2.0
-            transformer_to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-            cx_utm, cy_utm = transformer_to_utm.transform(center_lon, center_lat)
-
-            xmin, xmax = cx_utm - half_extent, cx_utm + half_extent
-            ymin, ymax = cy_utm - half_extent, cy_utm + half_extent
-            width = height = VIIRS_TARGET_PIXELS
-            actual_scale_m = VIIRS_TARGET_EXTENT_M / VIIRS_TARGET_PIXELS
-
-            local_array = np.zeros((height, width), dtype=np.float32)
-            gdf = gpd.GeoDataFrame(
-                cluster_group,
-                geometry=gpd.points_from_xy(cluster_group.longitude, cluster_group.latitude),
-                crs="EPSG:4326"
-            ).to_crs(utm_crs)
-
-            gdf = gdf.sort_values(by='frp', ascending=True)
-            for _, row in gdf.iterrows():
-                px, py = row.geometry.x, row.geometry.y
-                col = int(np.floor((px - xmin) / actual_scale_m))
-                row_idx = int(np.floor((ymax - py) / actual_scale_m))
-                if 0 <= col < width and 0 <= row_idx < height:
-                    local_array[row_idx, col] = row['frp']
-
-            transform = rasterio.transform.from_bounds(xmin, ymin, xmax, ymax, width, height)
-            mem_file = io.BytesIO()
-            with rasterio.open(
-                mem_file, 'w', driver='GTiff', height=height, width=width, count=1,
-                dtype='float32', crs=utm_crs, transform=transform
-            ) as dst:
-                dst.write(local_array, 1)
-            mem_file.seek(0)
-
-            io_work_items.append((
-                cluster_id, center_lon, center_lat, peak_time, utm_crs, context_roi, 
-                mem_file, int(len(cluster_group)), float(cluster_group['frp'].max())
-            ))
-
-    # -----------------------------------------------------------------
-    # STEP 2: FULLY DECOUPLED PHASED PIPELINE (CRASH PROOF)
-    # -----------------------------------------------------------------
-    network_work_items = []
-    
-    print(f"\n[PHASE 1] Rapidly dispatching {len(io_work_items)} tasks to Earth Engine...")
-    
-    for idx, item in enumerate(io_work_items):
-        cluster_id = item[0]
-        center_lon, center_lat = item[1], item[2]
-        utm_crs, context_roi = item[4], item[5]
-        
-        goes_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}"
-        manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
-        cov_prefix = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}"
-
-        # 1. Dispatch to Earth Engine sequentially on the main thread (No threads = No Segfault)
-        try:
-            # Quick lookahead: only query GCS if absolutely necessary, or let EE overwrite
-            cov_blobs = list(bucket.list_blobs(prefix=cov_prefix, max_results=1))
-            if len(cov_blobs) == 0:
-                # REMOVED wait_for_queue_slot() here to avoid stalling Phase 1. 
-                # If your EE account limits are hit, EE will throw an exception we handle below.
-                ee.batch.Export.image.toCloudStorage(
-                    image=COVARIATE_STACK.clip(context_roi), description=f"cov_vx_{cluster_id}",
-                    bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
-                    scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
-                ).start()
-                
-                if idx % 50 == 0:
-                    print(f"    [EE PIPELINE] Registered {idx}/{len(io_work_items)} tasks with EE backend.")
-        except Exception as e:
-            # If Earth Engine queue limits are hit, catch it and keep going so the downloader isn't blocked
-            if "Total number of tasks" in str(e) or "limit" in str(e).lower():
-                pass 
-            else:
-                print(f"    [!] EE Registration warning for {cluster_id}: {e}")
-
-        # Assemble items for the download phase
-        network_work_items.append((
-            cluster_id, center_lon, center_lat, item[3], utm_crs,
-            item[6], item[7], item[8], goes_prefix, manifest_path
-        ))'''
 def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_WORKERS):
     if region_bbox is None:
         print("\n[SKIP] No Landsat patches were processed this run - skipping VIIRS branch.")
@@ -1183,7 +1042,7 @@ if __name__ == "__main__":
 
     MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
     MAX_TIFFS_PER_SUB = 10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
-    MAX_VIIRS_CLUSTERS = 6_000
+    MAX_VIIRS_CLUSTERS = 10_000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 
