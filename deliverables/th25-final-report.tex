@@ -107,7 +107,7 @@ High-spatial and high-temporal resolution wildfire data is highly desired in ris
 
 To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate physically implausible outputs. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net, a transformer-based model, and a diffusion-based model.
 
-\section{Data}
+\section{Data and Materials}
 
 \subsection{Input Datasets}
 \begin{itemize}
@@ -118,17 +118,26 @@ To bridge this gap, existing methods uses Deep Learning (DL) models for downscal
 
 \subsection{Target Fire Data}
 \begin{itemize}
-    \item Landsat-8 active fire dataset includes data for fire scenes taken from August and September 2020 with 30m resolution (\cite{dealmeidapereiraActiveFireDetection2021}). This will be the final target HR target data. Fire-sensitive SWIR and thermal bands will be used.
+    \item Landsat-8 active fire dataset includes data for fire scenes taken from August and September 2020 with dimensions 256x256 at 30m resolution (\cite{dealmeidapereiraActiveFireDetection2021}). This will be the final target HR target data. Fire-sensitive SWIR and thermal bands will be used.
     \item  VIIRS (S-NPP) Band Active Fire with 375 m spatial resolution (\cite{earthsciencedatasystemsVIIRSSNPPBand2025}) will be used as the target data for the 2km to 375m stage downscaling. The I-4 channel brightness temperature (3.55-3.93 µm) band will be used.
 \end{itemize}
 
 \section{Methods}
 \subsection{HAUNet (Hybrid Attention U-Net)}
-HAUNet is a hybrid attention U-Net model that uses two variants of attention blocks:
+HAUNet is a hybrid attention U-Net model (\cite{wangHybridAttentionBasedUShaped2023}) that uses two variants of attention blocks:
 \begin{itemize}
     \item \textbf{CEM}: Applies channel attention.
     \item \textbf{S\_CEM}: Additionally applies spatial attention in parallel.
 \end{itemize}
+
+The model uses cross-scale attention module as skip connections across different scale outputs in the encoder, to capture dependency between different scales. The overall framework of wildfire-adapted HAUNet is shown in Figure \ref{fig:haunet}. The original HAUNet S\_CEM does full spatial attention, which is $O((H\cdot W)^2)$ and will run into OOM crashes. Hence the input GOES and covariates are sampled to a smaller image before feeding into the model. But this loses covariates' high-resolution information, so an additional covariate pyramid encoder was added form the original model to run in parallel. This performs windowed spatial attention on the covariates at fine resolution. The output of the covariate encoders are fused at different scales during refinement.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/haunet_diagram.png}
+    \caption{Architecture overview of the wildfire-adapted HAUNet. The full-resolution stream processes native covariates, which are progressively fused via refinement blocks with the low-resolution stack after CIM.}
+    \label{fig:haunet}
+\end{figure}
 
 \section{Results}
 

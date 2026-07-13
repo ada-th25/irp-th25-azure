@@ -182,3 +182,24 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 09/07/2026
     * **Scope:** Debug `goes_local_fetch` to automatically evict cache to prevent dataset pipeline from failing. This adds the function `_evict_lru_if_needed`. And also fixes threading errors.
     * **Prompt:** (pasting existing pipeline and error message) "Debug `goes_local_fetch` to automatically evict cache to prevent dataset pipeline from failing by capping total cache size and evict older files before new ones are downloaded."
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 10/07/2026
+    * **Scope:** Fix the code crash caused by threading.
+    * **Prompt:** (pasting existing pipeline and error message) "Debug the code to prevent crashed caused by threading."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 12/07/2026
+    * **Scope:** Generate code that calculates Tversky loss in `losses.py`.
+    * **Prompt:** (pasting existing loss script): "Add Tversky loss in the script. Set beta > alpha to penalise missed positives."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 12/07/2026
+    * **Scope:** Debug the forking issue in the `wildfire_dataset` by checking each worker process builds its own
+        fresh client on first access, rather than reusing one inherited from the parent at fork time.
+    * **Prompt:** (pasting existing code and error message): "Debug the workers forking issue in the wildfire_dataset script."
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 13/07/2026
+    * **Scope:** Change `wildfire_dataset` so that the output VIIRS will be evaluated at their native 20x20 pixel dimensions, and dynamically process the data so that in the cascade model, it will accept the output VIIRS from the stage 1 model and upsamples to covariates' dimensions.
+    * **Prompt:** (pasting existing code): "output VIIRS will be evaluated at their native 20x20 pixel dimensions, and dynamically process the data so that in the cascade model, it will accept the output VIIRS from the stage 1 model and upsamples to covariates' dimensions."
