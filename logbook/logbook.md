@@ -128,3 +128,14 @@
 - **Work Plan Before Next Meeting:**
     - Look into how to use the public bucket in the data pipeline.
     - Look into how to rasterise without GEE.
+
+### Chat with Main Supervisor (14 Jul 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Update on the VIIRs data acquisition (finished).
+    - Update on model training (HAUNet) progress. The HAUNet currently trained on small sample for testing/tuning, but losses and results does not look great.
+- **Feedback:**
+    - Look into the Autoencoder model from Badhan et al. and see if we can implement it.
+- **Work Plan Before Next Meeting:**
+    - Try to tweak HAUNet further and try to get the model to NOT predict everything as 'no fire'
+    - Implement the Badhan et al. and see if it is any better.

@@ -244,3 +244,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 14/07/2026
     * **Scope:** Debug the OOM error by accumulating the the gradients over a set number of of batches instead of updating after every batch. And do a gradient clipping to limit the magnitude of the gradients. This edits `src/train.py`
     * **Prompt:** (pasting existing train script and error message): "Debug the OOM error by accumulating the the gradients over a set number of of batches instead of updating after every batch. And do a gradient clipping to limit the magnitude of the gradients."
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 14/07/2026
+    * **Scope:** Generate code that calculates Two Branch Loss and Local RMSE Loss in `src/losses.py` from Badhan et al. Autoencoder Architecture.
+    * **Prompt:** (uploaded a copy of Badhan et a.) "Generate a code that calculates Two branch loss and the Local RMSE loss from this paper."
+    * **Human Modification:** Implement it as a class inside the loss script.
