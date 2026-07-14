@@ -263,8 +263,8 @@ def main():
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
-    train_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=train_ids)
-    val_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=val_ids)
+    train_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=train_ids, dilate_target=(branch == "viirs"))
+    val_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=val_ids, dilate_target=(branch == "viirs"))
  
     train_loader = DataLoader(
         train_ds,

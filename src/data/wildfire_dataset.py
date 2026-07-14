@@ -1,3 +1,4 @@
+import os
 import json
 import numpy as np
 import torch
@@ -47,6 +48,24 @@ def load_split_ids(bucket_name: str, branch: str,
     return ids
 
 # ------------------------------------------------------------------
+# Default sizes per branch, based on measured native resolutions:
+#
+#   landsat: target 256x256, covariates 256x256
+#            goes native 4x4
+#   viirs:   target  20x20 - NOT resized, model input
+#            (goes_up + covariates) stays at FULL native
+#            256x256 (30m) resolution. The model's 256x256 output
+#            is downsampled to the native 20x20 target grid before
+#            the loss/metrics compare them
+#            Stage 1 predicts at VIIRS resolution, using
+#            full-resolution inputs to get there.
+# ------------------------------------------------------------------
+DEFAULT_SIZES = {
+    "landsat": {"target_size": (256, 256), "cov_size": (256, 256), "goes_size": (4, 4)},
+    "viirs":   {"target_size": (20, 20),   "cov_size": (256, 256), "goes_size": (4, 4)},
+}
+
+# ------------------------------------------------------------------
 # Dataset
 # ------------------------------------------------------------------
 
@@ -55,16 +74,20 @@ class WildfireDataset(Dataset):
     Loads (target, goes, covariates) triplets for either the
     landsat or viirs branch from GCS manifests.
 
-    Spatial layout after __getitem__:
+     Spatial layout after __getitem__ (defaults, see DEFAULT_SIZES):
         Landsat branch:
-            goes       -> (3, 15, 15)   bilinear snap from ~15-16px GEE output
-            covariates -> (2, 256, 256)  
-            target     -> (1, 256, 256)  untouched Pereira patch
-
-        VIIRS branch:
-            goes       -> (3, 15, 15)   bilinear snap from 15px GEE output
-            covariates -> (2, 256, 256)   
-            target     -> (1, 256, 256)   nearest snap from GEE output (7500m @ 375m)
+            goes       -> (3, 4, 4)     native GOES context (context_ratio=1)
+            goes_up    -> (3, 256, 256) upsampled for concatenation
+            covariates -> (2, 256, 256) native (30m)
+            target     -> (1, 256, 256) untouched fire patch
+ 
+        VIIRS branch (stage 1 -- full-res input, native-res output):
+            goes       -> (3, 4, 4)     native GOES context
+            goes_up    -> (3, 256, 256) upsampled for concatenation
+            covariates -> (2, 256, 256) native (30m), UNCHANGED -- model
+                                        input keeps full spatial detail
+            target     -> (1, 20, 20)   native VIIRS grid, no resize needed
+                                        (binarized from raw FRP)
 
     Completeness filtering:
         Samples are silently dropped at init time if any of the three
@@ -73,20 +96,20 @@ class WildfireDataset(Dataset):
         The number of dropped samples is reported via self.n_dropped.
     """
 
-    def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None):
-        self.bucket = storage.Client().bucket(bucket_name)
+    def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
+                 target_size=None, cov_size=None, goes_size=None, dilate_target=False):
+        self.bucket_name = bucket_name
         self.branch = branch
         self.output_prefix = output_prefix
-
-        if branch == "landsat":
-            self.target_size = (256, 256)
-            self.cov_size = (256, 256)
-            self.goes_size = (15, 15)
-        else:  # viirs
-            self.target_size = (256, 256)
-            self.cov_size = (256, 256)
-            self.goes_size = (15, 15)
-
+        self.dilate_target = dilate_target
+        self._bucket = None       # created per-process, see self.bucket property
+        self._client_pid = None   # tracks which process created self._bucket
+ 
+        defaults = DEFAULT_SIZES.get(branch, DEFAULT_SIZES["landsat"])
+        self.target_size = tuple(target_size) if target_size is not None else defaults["target_size"]
+        self.cov_size = tuple(cov_size) if cov_size is not None else defaults["cov_size"]
+        self.goes_size = tuple(goes_size) if goes_size is not None else defaults["goes_size"]
+ 
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
         raw_samples = []
         for blob in self.bucket.list_blobs(prefix=manifest_prefix):
@@ -95,15 +118,15 @@ class WildfireDataset(Dataset):
                     raw_samples.append(json.loads(blob.download_as_text()))
                 except Exception:
                     pass
-
+ 
         if split_ids is not None:
             before = len(raw_samples)
             raw_samples = [m for m in raw_samples if m.get("id") in split_ids]
             print(f"[WildfireDataset/{branch}] Split filter: "
                   f"{len(raw_samples)}/{before} samples in provided split.")
-
+ 
         self.samples, self.n_dropped = self._filter_complete(raw_samples)
-        
+ 
         if self.n_dropped > 0:
             print(
                 f"[WildfireDataset/{branch}] Dropped {self.n_dropped}/{len(raw_samples)} "
@@ -112,6 +135,34 @@ class WildfireDataset(Dataset):
             )
         else:
             print(f"[WildfireDataset/{branch}] {len(self.samples)} usable pairs.")
+ 
+        print(f"[WildfireDataset/{branch}] sizes: target={self.target_size}, "
+              f"cov={self.cov_size}, goes={self.goes_size}")
+
+    # ------------------------------------------------------------------
+    # Fork-safe lazy GCS client
+    # ------------------------------------------------------------------
+    @property
+    def bucket(self):
+        """
+        Lazily create a storage.Client()/bucket in the CURRENT process.
+ 
+        google-cloud-storage's client holds open HTTP connections
+        (urllib3 pools) that are not fork-safe: if a client created in
+        the main process is inherited by DataLoader worker processes via
+        fork(), concurrent workers can corrupt/interleave reads on the
+        duplicated sockets, surfacing as intermittent
+        google.cloud.storage.exceptions.DataCorruption errors.
+ 
+        Checking os.getpid() ensures each worker process builds its own
+        fresh client on first access, rather than reusing one inherited
+        from the parent at fork time.
+        """
+        current_pid = os.getpid()
+        if self._bucket is None or self._client_pid != current_pid:
+            self._bucket = storage.Client().bucket(self.bucket_name)
+            self._client_pid = current_pid
+        return self._bucket
 
     # ------------------------------------------------------------------
     # Completeness filtering
@@ -198,48 +249,61 @@ class WildfireDataset(Dataset):
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
         goes = F.interpolate(
             goes.unsqueeze(0),
-            size=self.goes_size,        # (15, 15)
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(0)                    # (3, 15, 15)
-    
-        # Upsample GOES separately for concatenation with covariates.
-        # goes stays (3, 15, 15); goes_up is (3, 256, 256) or (3, 20, 20).
-        goes_up = F.interpolate(
-            goes.unsqueeze(0),
-            size=self.target_size,      # (256, 256) or (20, 20)
+            size=self.goes_size,
             mode="bilinear",
             align_corners=False,
         ).squeeze(0)
-    
-        # Snap covariates to target size (handles ±1-2px GEE grid snapping).
+ 
+        # Upsample GOES separately for concatenation with covariates/target
+        goes_up = F.interpolate(
+            goes.unsqueeze(0),
+            size=self.cov_size,
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(0)
+ 
+        # Snap covariates to cov_size
         if cov.shape[-2:] != self.cov_size:
             cov = F.interpolate(
                 cov.unsqueeze(0),
                 size=self.cov_size,
                 mode="bilinear",
                 align_corners=False,
-            ).squeeze(0)                # (2, 256, 256) or (2, 20, 20)
-    
-        # Snap target to canonical size (GEE snapping can produce ±1px).
+            ).squeeze(0)
+ 
+        # Snap target to canonical size
         if target.shape[-2:] != self.target_size:
             target = F.interpolate(
                 target.unsqueeze(0),
                 size=self.target_size,
                 mode="nearest",
-            ).squeeze(0)                # (1, 256, 256) or (1, 20, 20)
-
+            ).squeeze(0)
+ 
+        # VIIRS targets are raw FRP values (continuous, MW), not a binary
+        # fire mask -- binarize so the loss (Focal/Tversky) receives {0,1}.
         if self.branch == "viirs":
             target = (target > 0).float()
-    
-        # Concatenate upsampled GOES with covariates into the model input tensor.
-        inp = torch.cat([goes_up, cov], dim=0)   # (5, 256, 256) or (5, 20, 20)
-    
+            if self.dilate_target:
+                # Dilate each true fire pixel into its 3x3 neighbourhood.
+                # At this resolution (20x20, ~1-2 active pixels per
+                # sample), a single-pixel registration/snapping error causes region-overlap losses/metrics
+                # (Dice/Tversky/IoU) to score an otherwise-good prediction
+                # as a complete miss. Dilating gives 1-pixel tolerance.
+                # max_pool2d with kernel=3, stride=1, padding=1 grows each
+                # positive pixel into a 3x3 block without shifting position.
+                target = F.max_pool2d(
+                    target.unsqueeze(0), kernel_size=3, stride=1, padding=1
+                ).squeeze(0)
+            target = (target > 0).float()
+ 
+        # Concatenate upsampled GOES with covariates into the model input
+        inp = torch.cat([goes_up, cov], dim=0)
+ 
         return {
-            "input":      inp,       # (5, H, W) model input
-            "target":     target,    # (1, H, W) fire mask
-            "goes":       goes,      # (3, 15, 15) raw GOES, for diagnostics
-            "covariates": cov,       # (2, H, W) DEM + land cover
+            "input":      inp,       # (goes_ch + cov_ch, H, W) model input
+            "target":     target,    # (1, H, W) fire mask, H,W = target_size
+            "goes":       goes,      # (3, goes_H, goes_W) raw GOES, for diagnostics
+            "covariates": cov,       # (2, H, W) DEM + land cover, H,W = cov_size
             "sample_id":  manifest["id"],
             "date":       manifest["date"],
         }
