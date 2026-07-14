@@ -19,17 +19,18 @@ data:
 
 training:
   batch_size: 2                   # keep tiny given the small split (train~16 at max-samples=20)
-  epochs: 3                       # just enough to see the loss trend move
+  grad_accum_steps: 4      # effective batch size = 2 * 4 = 8, same as intended
+  epochs: 20
   learning_rate: 1.0e-4
   min_lr: 1.0e-6
   weight_decay: 1.0e-4
-  grad_clip: 1.0
+  grad_clip: 2.0
   val_every_n_epochs: 1           # validate every epoch since there are so few
   save_every_n_epochs: 3          # save once, at the end
 
 checkpointing:
-  checkpoint_dir: checkpoints_test
-  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints_smoke/e2_haunet_viirs_cascaded_stage1_test
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_viirs_cascaded_stage1_test
   keep_last_n: 1                  # don't bother retaining history for a throwaway run
 
 logging:
@@ -37,6 +38,11 @@ logging:
   use_wandb: false                # keep smoke runs out of the real W&B project
 
 loss:
-  type: focal_dice                # matches your FocalDiceLoss / build_loss factory
-  alpha: 0.75                     # up-weights the rare fire class (your validated choice)
-  smooth: 0.05                    # low smooth given extreme pixel sparsity
+  type: focal_tversky
+  alpha: 0.75            # focal alpha, unchanged
+  gamma: 2.0              # consider 3.0 if it still under-predicts fire
+  tversky_alpha: 0.2       # false-positive weight
+  tversky_beta: 0.85        # false-negative weight, penalizes missed fire pixels
+  smooth: 1.0              # Tversky smoothing (not the same scale as old Dice smooth)
+  focal_weight: 1.0
+  tversky_weight: 1.0
