@@ -1,8 +1,8 @@
 earthengine-api==1.7.31
 einops==0.8.2
 gdown==6.1.0
-google-auth==2.37.0
-google-cloud-storage==3.10.1
+geopandas==1.1.4
+matplotlib==3.11.0
 numpy==2.5.1
 pandas==3.0.3
 protobuf==7.35.1
@@ -10,7 +10,9 @@ pyproj==3.7.2
 pytest==9.1.1
 PyYAML==6.0.3
 rasterio==1.5.0
-scikit-learn==1.7.2
+rioxarray==0.22.0
+scikit-learn==1.9.0
 scipy==1.18.0
 torch==2.12.1
 wandb==0.28.0
+xarray==2026.7.0

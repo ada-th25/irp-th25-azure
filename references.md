@@ -1,6 +1,6 @@
 This file contains references and AI disclosures specific to the codebase in this repository.
 
-**Academic Citations:** For bibliography and references related to the written report, please see [`deliverables/references.bib`](./deliverables/references.bib).
+**Academic Citations:** For bibliography, papers/articles, and references related to the written report, please see [`deliverables/references.bib`](./deliverables/references.bib).
 
 # Code Repositories
 
@@ -13,21 +13,51 @@ This file contains references and AI disclosures specific to the codebase in thi
 # Packages & Dependencies
 
 * **NumPy**
-    * **Version/Date:** v2.4 / 08/06/2026
+    * **Version/Date:** v2.4
     * **Repository:** https://github.com/numpy/numpy
     * **Paper/Documentation:** C. R. Harris *et al.*, "Array programming with NumPy," *Nature*, vol. 585, no. 7825, pp. 357–362, Sep. 2020, doi: 10.1038/s41586-020-2649-2.
     * **Usage:** Multidimensional array manipulations and structural data transformations.
 
 * **PyTorch**
-    * **Version/Date:** v2.12 / 23/06/2026
+    * **Version/Date:** v2.12
     * **Repository:** https://github.com/pytorch/pytorch
     * **Usage:** Core deep learning framework for building, training, and executing neural network architectures.
 
 * **scikit-learn**
-    * **Version/Date:** v1.3 / 27/06/2026
+    * **Version/Date:** v1.3
     * **Repository:** https://github.com/scikit-learn/scikit-learn
     * **Paper/Documentation:** F. Pedregosa *et al.*, "Scikit-learn: Machine Learning in Python," *Journal of Machine Learning Research*, vol. 12, pp. 2825-2830, 2011.
     * **Usage:** Used for evaluation metrics, dataset splitting, or specific data preprocessing pipelines.
+
+* **GeoPandas**
+    * **Version/Date:** v1.1
+    * **Repository:** https://github.com/geopandas/geopandas
+    * **Paper/Documentation:** Kelsey Jordahl, Joris Van den Bossche, Martin Fleischmann, Jacob Wasserman, James McBride, Jeffrey Gerard, … François Leblanc. (2020, July 15). geopandas/geopandas: v0.8.1 (Version v0.8.1). Zenodo. http://doi.org/10.5281/zenodo.3946761
+    * **Usage:** Vector data processing, geometric manipulations, and coordinate reference system (CRS) transformations.
+
+* **Google Earth Engine Python API (earthengine-api)**
+    * **Version/Date:** v1.7
+    * **Repository:** https://github.com/google/earthengine-api
+    * **Paper/Documentation:** N. Gorelick *et al.*, "Google Earth Engine: Planetary-scale geospatial analysis for everyone," *Remote Sensing of Environment*, 2017, doi: 10.1016/j.rse.2017.06.031.
+    * **Usage:** Querying, filtering, and executing planetary-scale cloud computations on geospatial datasets.
+
+* **Xarray**
+    * **Version/Date:** v2026.7
+    * **Repository:** https://github.com/pydata/xarray
+    * **Paper/Documentation:** S. Hoyer and J. Hamman, "xarray: N-D labeled Arrays and Datasets in Python," *Journal of Open Research Software*, 2017, doi: 10.5334/jors.148.
+    * **Usage:** Managing multi-dimensional gridded datasets with labeled dimensions, coordinates, and metadata.
+
+* **rioxarray**
+    * **Version/Date:** v0.22.0
+    * **Repository:** https://github.com/corteva/rioxarray
+    * **Paper/Documentation:** Corteva Open Source, "rioxarray: Geospatial xarray extension powered by rasterio," https://corteva.github.io/rioxarray.
+    * **Usage:** Geospatial raster operations on Xarray structures, including clipping, reprojecting, and exporting to GeoTIFF formats.
+
+* **SciPy**
+    * **Version/Date:** v1.18.0
+    * **Repository:** https://github.com/scipy/scipy
+    * **Paper/Documentation:** P. Virtanen *et al.*, "SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python," *Nature Methods*, vol. 17, pp. 261–272, 2020, doi: 10.1038/s41592-019-0686-2.
+    * **Usage:** Advanced mathematical algorithms, statistics, and scientific calculations complementing NumPy operations.
 
 # Online Resources
 
@@ -36,6 +66,12 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **URL:** https://medium.com/data-scientists-diary/implementing-focal-loss-in-pytorch-for-class-imbalance-24d8aa3b59d9
     * **Author/Organisation:** Amit Yadav
     * **Usage:** Used their implementation of focal and dice loss.
+
+* **Medium**
+    * **Date Used:** 12/07/2026
+    * **URL:** https://medium.com/@saba99/tversky-loss-902f5f8cc35f
+    * **Author/Organisation:** Saba Hesaraki
+    * **Usage:** Understand the use of Tversky loss in context of image segmentation.
 
 # AI Usage
 
@@ -203,3 +239,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 13/07/2026
     * **Scope:** Change `wildfire_dataset` so that the output VIIRS will be evaluated at their native 20x20 pixel dimensions, and dynamically process the data so that in the cascade model, it will accept the output VIIRS from the stage 1 model and upsamples to covariates' dimensions.
     * **Prompt:** (pasting existing code): "output VIIRS will be evaluated at their native 20x20 pixel dimensions, and dynamically process the data so that in the cascade model, it will accept the output VIIRS from the stage 1 model and upsamples to covariates' dimensions."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 14/07/2026
+    * **Scope:** Debug the OOM error by accumulating the the gradients over a set number of of batches instead of updating after every batch. And do a gradient clipping to limit the magnitude of the gradients. This edits `src/train.py`
+    * **Prompt:** (pasting existing train script and error message): "Debug the OOM error by accumulating the the gradients over a set number of of batches instead of updating after every batch. And do a gradient clipping to limit the magnitude of the gradients."
