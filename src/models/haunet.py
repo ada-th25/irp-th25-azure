@@ -621,7 +621,7 @@ class HAUNet(nn.Module):
         self.cov_pyramid = CovariatePyramidEncoder(
             cov_channels=cov_channels,
             refine_channels=cov_refine_channels,
-            n_stages=self.n_refine_stages,
+            n_stages=max(0, self.n_refine_stages - 1),#n_stages=self.n_refine_stages,
             window_size=cov_window_size,
         )
 
@@ -642,6 +642,10 @@ class HAUNet(nn.Module):
             out_channels=1,
             kernel_size=3, padding=1, stride=1, bias=True
         )
+
+        PRIOR_FIRE_FRACTION = 0.0085
+        prior_logit = math.log(PRIOR_FIRE_FRACTION / (1 - PRIOR_FIRE_FRACTION))
+        nn.init.constant_(self.output_head.bias, prior_logit)
  
     def forward(self, inp):
         """

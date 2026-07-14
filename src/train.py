@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader
 from google.cloud import storage
@@ -21,8 +22,8 @@ from google.auth import default
 # Local modules
 sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
-from models.haunet.haunet import make_model
-from metrics import compute_iou, compute_ipsnr, compute_boundary_f1
+from models.haunet import make_model
+from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall
 from losses import build_loss
 
 
@@ -84,42 +85,44 @@ def train_one_epoch(
     device: torch.device,
     grad_clip: float,
     epoch: int,
+    accum_steps: int = 1,
 ) -> float:
     model.train()
     total_loss = 0.0
     n_batches  = len(loader)
-
+ 
+    optimiser.zero_grad()   # zero once, before the accumulation loop starts
+ 
     for batch_idx, batch in enumerate(loader):
         inp = batch["input"].to(device)     # (B, 5, 256, 256)
         target = batch["target"].to(device)    # (B, 1, 256, 256)
-
-        optimiser.zero_grad()
-        logits = model(inp)                    # (B, 1, 256, 256)
+ 
+        logits = model(inp)                    # (B, 1, H_in, W_in)
+        if logits.shape[-2:] != target.shape[-2:]:
+            logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
         loss = criterion(logits, target)
-
-        if torch.isnan(loss) or torch.isinf(loss):
-            print(f"\n[NaN/Inf DETECTED] batch {batch_idx}, sample_ids: {batch['sample_id']}")
-            print(f"  input   range: {inp.min().item():.4f} to {inp.max().item():.4f}")
-            print(f"  target  range: {target.min().item():.4f} to {target.max().item():.4f}")
-            print(f"  logits  range: {logits.min().item():.4f} to {logits.max().item():.4f}")
-            print(f"  logits  has nan: {torch.isnan(logits).any().item()}, has inf: {torch.isinf(logits).any().item()}")
-            print(f"  covariates range: {batch['covariates'].min().item():.4f} to {batch['covariates'].max().item():.4f}")
-            print(f"  goes range: {batch['goes'].min().item():.4f} to {batch['goes'].max().item():.4f}")
-            raise SystemExit("Stopping at first NaN/Inf loss for debugging.")
-
-        loss.backward()
-
-        if grad_clip > 0:
-            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-
-        optimiser.step()
-        total_loss += loss.item()
-
+ 
+        # Scale the loss down by accum_steps so that summing gradients
+        # over accum_steps batches
+        (loss / accum_steps).backward()
+ 
+        # Only step the optimiser (and clip/zero) every accum_steps
+        # batches, or on the final batch of the epoch, so a trailing
+        # partial group of batches still gets applied instead
+        is_accum_boundary = ((batch_idx + 1) % accum_steps == 0) or ((batch_idx + 1) == n_batches)
+        if is_accum_boundary:
+            if grad_clip > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimiser.step()
+            optimiser.zero_grad()
+ 
+        total_loss += loss.item()   # log the TRUE (unscaled) loss value
+ 
         # Print progress every 10 batches
         if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == n_batches:
             print(f"  Epoch {epoch:3d} | batch {batch_idx+1:4d}/{n_batches} "
                   f"| loss {loss.item():.4f}", flush=True)
-
+ 
     return total_loss / n_batches
 
 
@@ -133,32 +136,49 @@ def validate(
     model.eval()
     total_loss = 0.0
     total_iou = 0.0
+    total_iou_lowthresh = 0.0
     total_ipsnr = 0.0
     total_bf1 = 0.0
+    total_precision = 0.0
+    total_recall = 0.0
+    total_pixel_f1 = 0.0
     n_ipsnr = 0       # ipsnr is skipped when no fire pixels exist
     n_batches = len(loader)
-
+ 
     for batch in loader:
         inp = batch["input"].to(device)
         target = batch["target"].to(device)
-
+ 
         logits = model(inp)
+        if logits.shape[-2:] != target.shape[-2:]:
+            #logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
+            logits = F.interpolate(logits, size=target.shape[-2:], mode='area')
         loss = criterion(logits, target)
-
+ 
         total_loss += loss.item()
-        total_iou += compute_iou(logits, target)
+        total_iou += compute_iou(logits, target) # default threshold=0.5
+        total_iou_lowthresh += compute_iou(logits, target, threshold=0.3)
         total_bf1 += compute_boundary_f1(logits, target)
-
+ 
+        pr = compute_precision_recall(logits, target) # default threshold=0.5
+        total_precision += pr["precision"]
+        total_recall += pr["recall"]
+        total_pixel_f1 += pr["f1"]
+ 
         ipsnr = compute_ipsnr(logits, target)
         if ipsnr != float("inf"):
             total_ipsnr += ipsnr
             n_ipsnr += 1
-
+ 
     return {
         "val_loss": total_loss / n_batches,
         "val_iou": total_iou / n_batches,
+        "val_iou_t03": total_iou_lowthresh / n_batches,
         "val_ipsnr": total_ipsnr / max(n_ipsnr, 1),
         "val_boundary_f1": total_bf1 / n_batches,
+        "val_precision": total_precision / n_batches,
+        "val_recall": total_recall / n_batches,
+        "val_pixel_f1": total_pixel_f1 / n_batches,
     }
 
 # ------------------------------------------------------------------
@@ -322,6 +342,10 @@ def main():
     val_every = cfg["training"]["val_every_n_epochs"]
     save_every = cfg["training"]["save_every_n_epochs"]
     keep_last = cfg["checkpointing"]["keep_last_n"]
+    accum_steps = cfg["training"].get("grad_accum_steps", 1)   # 1 = no accumulation (default/backward compatible)
+    if accum_steps > 1:
+        print(f"Gradient accumulation: {accum_steps} steps "
+              f"(effective batch size = {cfg['training']['batch_size'] * accum_steps})")
  
     print(f"\nStarting training for {n_epochs} epochs "
           f"(val every {val_every}, save every {save_every})...\n")
@@ -336,6 +360,7 @@ def main():
             model, train_loader, optimiser, criterion, device,
             grad_clip=cfg["training"]["grad_clip"],
             epoch=epoch,
+            accum_steps=accum_steps,
         )
         scheduler.step()
         lr_now = scheduler.get_last_lr()[0]
@@ -374,6 +399,9 @@ def main():
                 f"train_loss={train_loss:.4f} | "
                 f"val_loss={val_metrics['val_loss']:.4f} | "
                 f"val_iou={val_metrics['val_iou']:.4f} | "
+                f"val_iou@0.3={val_metrics['val_iou_t03']:.4f} | "
+                f"val_prec={val_metrics['val_precision']:.4f} | "
+                f"val_rec={val_metrics['val_recall']:.4f} | "
                 f"val_ipsnr={val_metrics['val_ipsnr']:.2f} dB | "
                 f"val_bf1={val_metrics['val_boundary_f1']:.4f} | "
                 f"lr={lr_now:.2e} | "
