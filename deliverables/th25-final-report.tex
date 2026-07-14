@@ -89,7 +89,7 @@
 %          ABSTRACT & CONTENTS
 % ==========================================
 \begin{abstract}
-Wildfires are destructive and a rapidly evolving hazard. With climate change, they become increasingly severe and frequent. This increases the need for a higher-resolution wildfire data for better monitoring and risk assessment. Geostationary satellites (GEO) have high-temporal resolution, but lacks the resolution needed for a detailed wildfire risk assessment. While low orbit satellites (LEO) provide better spatial resolution, but low temporal resolution to monitor rapid wildfire spread. Existing downscaling models have demonstrated their effectiveness in producing high-resolution remote sensing data. But many still suffers from artefacts, blurriness, and hallucinations. This project aims to achieve a high-resolution spatial downscaling of wildfire data by integrating additional physical covariates to the model, such as topography and landcover to mitigate physically implausible outputs. The project compares direct (2km to 30m) and cascaded (2km to 375m to 30m) downscaling pipelines and their effectiveness in producing high-fidelity, high-resolution wildfire data. The project compares diffusion (EDiffSR), attention U-Net (HAUNet), and transformer-based (ESTNet) downscaling models.
+With climate change, there's an increasing need for a higher-resolution wildfire data for better monitoring and risk assessment. GEO satellites have high-temporal resolution, but lacks spatial resolution for a detailed risk assessment. While LEO satellites provide better spatial resolution, but low temporal resolution to monitor rapid wildfire spread. Existing downscaling models have demonstrated their effectiveness in producing high-resolution remote sensing data. But many still fail to capture the fine details and physically plausible outputs. This project aims to achieve a high-resolution spatial downscaling of wildfire data by integrating additional physical covariates to the model to mitigate implausible outputs. The project explores direct (2km to 30m) and cascaded (2km to 375m to 30m) downscaling pipelines and their effectiveness in producing high-resolution wildfire data. The project compares diffusion (EDiffSR), attention U-Net (HAUNet), and transformer-based (ESTNet) downscaling models.
 
 \end{abstract}
 
@@ -103,12 +103,24 @@ Wildfires are destructive and a rapidly evolving hazard. With climate change, th
 \section{Introduction}
 In recent years, due to rising popularity in Net-Zero initiatives, carbon investors are increasingly funding carbon reduction and removal projects, such as reforestation (\cite{InvestmentTrendsOutcomes}). However, these carbon projects are at risk because wildfires can destroy and release the carbon back into the atmosphere. With climate change, wildfires are becoming increasingly severe and frequent (\cite{jonesClimateChangeIncreases,}). This causes economic losses for the insurance industry. For instance, The January 2025 Los Angeles County wildfires set an all-time record, causing \$40 billion in insured losses alone from a single event (\cite{staffHowWildfiresStorms2026}). This project, conducted with Artio, aims to address this gap. By providing highly accurate risk assessment models, this research seeks to give better confidence and enable better risk assessment.
 
-High-spatial and high-temporal resolution wildfire data is highly desired in risk assessment. However, high-temporal resolution data obtained from geostationary satellites (GEO) have limited spatial resolution, which makes them difficult to use for accurate risk assessment. While low orbit satellites (LEO) offers high-spatial resolution, but low-temporal resolution.
+High-spatial and high-temporal resolution wildfire data is favourable in risk assessment. However, high-temporal resolution data obtained from geostationary satellites (GEO) have limited spatial resolution, which makes them difficult to use for accurate risk assessment. While low orbit satellites (LEO) offers high-spatial resolution, but low-temporal resolution.
 
 To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate physically implausible outputs. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net, a transformer-based model, and a diffusion-based model.
 
-\section{Data and Materials}
+\section{Current State of Remote Sensing Downscaling}
+Traditional downscaling methods often fail to capture the complex non-linear patterns and variability in remote sensing data. In recent years, DL methods have shown promising results that outpaces traditional approaches (\cite{sdrakaDeepLearningDownscaling2022}). In particular, Convolutional Neural Networks (CNNs) and U-Net architectures have been widely used for their ability to capture spatial features. Generative Adversarial Networks (GANs) have also been used for their ability to generate sharp images. Recently, Transformer and Diffusion-based approaches have been proposed for downscaling. Transformers use attention mechanisms to capture long-range dependencies (\cite{wangVGGTVisualGeometry2025}), while Diffusion models shows good generative ability and fidelity (\cite{wangSinSRDiffusionBasedImage2023}).
 
+However, many of these approaches struggles preserving fine textures and geometric structures (\cite{qiAdvancingImageSuperresolution2026}). This is problematic for wildfire data, where the spatial patterns and textures are crucial for risk assessment. To address these limitations, there is a need for domain-specific architectures that can better capture the characteristics of wildfire data.
+
+Existing literature remains reliant on direct downscaling methods across large resolution-gaps. Some studies have explored cascaded approaches, such as AMCN-Geoi-DBN from \cite{jingCascadedDownscalingCalibration2022}, and CLIT from \cite{chenCascadedLocalImplicit2023}, but there are currently no research from the literature investigating cascaded downscaling in the context of wildfires. The limitations and benefits of cascaded downscaling is also largely unexplored. To address this gap, the project objectives are:
+
+\begin{enumerate}
+    \item Develop a domain-specific, multi-stage framework for wildfire downsclaing.
+    \item Compare the performance of different downscaling architectures in terms of preserving fine textures and geometric structures.
+    \item Evaluate the trade-offs of cascaded and direct downscaling and its effectiveness in improving the accuracy of wildfire downscaling.
+\end{enumerate}
+
+\section{Data and Materials}
 \subsection{Input Datasets}
 \begin{itemize}
     \item GOES-17 channel 7 (IR shortwave) of Level 1B (L1B) Radiances product (ABI-L1B-Rad). Has spatial resolution of 2km at every 5 mins. This channel is selected because it is commonly used to identify hot regions (\cite{badhanDeepLearningApproach2024}). This will be the main coarse input.
@@ -124,7 +136,8 @@ To bridge this gap, existing methods uses Deep Learning (DL) models for downscal
 
 \section{Methods}
 \subsection{HAUNet (Hybrid Attention U-Net)}
-HAUNet is a hybrid attention U-Net model (\cite{wangHybridAttentionBasedUShaped2023}) that uses two variants of attention blocks:
+Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses hybrid attention to capture both local fine detail and broader contextual structure across multiple scales. HAUNet was selected for its ability to capture local extreme hotspots in near-zero background, which standard U-Nets might smooth out.
+HAUNet uses two variants of attention blocks:
 \begin{itemize}
     \item \textbf{CEM}: Applies channel attention.
     \item \textbf{S\_CEM}: Additionally applies spatial attention in parallel.
