@@ -127,9 +127,18 @@ Existing literature remains reliant on direct downscaling methods across large r
 \section{Data and Materials}
 Table \ref{tab:data_sources} shows the data sources used for this project. The specifications for the VIIRS, GOES, and Landsat data are outlined in Table \ref{tab:pipeline_configs}.
 
+The data was processed so that all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute temporal window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets, stratified sampling was applied across temporal extent and fire pixel count bins. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried. In addition to the native $3.9\ \mu\text{m}$ (Ch. 7) and $11.2\ \mu\text{m}$ (Ch. 14) GOES brightness temperatures, a Temporal Fire Index (TFI) is computed as:
+
+\begin{equation}
+    TFI = Ch.7 - Ch.14
+    \label{eq:tfi}
+\end{equation}
+
+Copernicus DEM and ESA WorldCover landcover datasets are aligned, stacked, clipped to the respective target bounds, and bilinearly resampled to match the Landsat grid scale.
+
 \begin{table}[htbp]
 \centering
-\caption{Pipeline Data Sources, Roles, and Spectral Bands}
+\caption{Data Sources and Specifications}
 \label{tab:data_sources}
 \begin{tabularx}{\textwidth}{llYYY}
 \hline
