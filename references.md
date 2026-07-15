@@ -73,6 +73,12 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Author/Organisation:** Saba Hesaraki
     * **Usage:** Understand the use of Tversky loss in context of image segmentation.
 
+* **Medium**
+    * **Date Used:** 15/07/2026
+    * **URL:** https://sh-tsang.medium.com/review-cornernet-detecting-objects-as-paired-keypoints-object-detection-ffb23026291b
+    * **Author/Organisation:** Sik-Ho Tsang
+    * **Usage:** Understand how the variation of focal loss used in CornerNet works.
+
 # AI Usage
 
 * **Tool:** Anthropic Claude (Sonnet 4.6)
@@ -250,3 +256,14 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generate code that calculates Two Branch Loss and Local RMSE Loss in `src/losses.py` from Badhan et al. Autoencoder Architecture.
     * **Prompt:** (uploaded a copy of Badhan et a.) "Generate a code that calculates Two branch loss and the Local RMSE loss from this paper."
     * **Human Modification:** Implement it as a class inside the loss script.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 15/07/2026
+    * **Scope:** Create a train/val loss plotting script `src/utils/plot_loss.py` and edit the CSV logger in `src/train.py` to ensure it writes the logs on new files if training was rerun.
+    * **Prompt:** (pasting existing train script): "Create a train/val loss plotting script `src/utils/plot_loss.py` and edit the CSV logger in `src/train.py` to ensure it writes the logs on new files if training was rerun."
+
+* **Tool:** Google Gemini (3.5)
+    * **Date Used:** 15/07/2026
+    * **Scope:** Add implementation of the variation of focal loss from CornerNet (`GaussianFocalLoss` in `src/losses.py`). And add a function that converst the binary fire data into a Gaussian heatmap.
+    * **Prompt:** (pasting existing `wildfire_dataset` code and link to the CornerNet paper) "Implement a Gaussian Focal Loss based on this paper, and edit wildfire_dataset to add a Gaussian heatmap function that converts every pixel with pixel with value 1.0, a Gaussian distribution is rendered around it.
+    * **Human Modification:** Implement the loss as a class inside the loss script.
