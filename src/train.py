@@ -22,9 +22,14 @@ from google.auth import default
 # Local modules
 sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
-from models.haunet import make_model
 from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall
 from losses import build_loss
+import importlib
+
+MODEL_REGISTRY = {
+    "haunet": "models.haunet",
+    "autoencoder": "models.autoencoder",
+}
 
 
 # ------------------------------------------------------------------
@@ -56,17 +61,27 @@ def prune_old_checkpoints(bucket, gcs_prefix: str, keep_last_n: int) -> None:
 # ------------------------------------------------------------------
 
 class CSVLogger:
-    def __init__(self, path: str):
+    DEFAULT_COLUMNS = [
+        "epoch", "train_loss", "lr",
+        "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
+        "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
+    ]
+ 
+    def __init__(self, path: str, columns: list = None, resume: bool = False):
         self.path = path
-        self.columns = None
+        self.columns = columns or list(self.DEFAULT_COLUMNS)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-
+        
+        if not resume and os.path.exists(self.path):
+            backup_path = self.path + ".bak"
+            print(f"  [CSVLogger] Existing log found at {self.path} but this is a fresh "
+                  f"(non-resumed) run -- backing it up to {backup_path} and starting a new file.")
+            os.replace(self.path, backup_path)
+ 
     def log(self, row: dict) -> None:
         write_header = not os.path.exists(self.path)
-        if self.columns is None:
-            self.columns = list(row.keys())
         with open(self.path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=self.columns)
+            writer = csv.DictWriter(f, fieldnames=self.columns, restval="", extrasaction="ignore")
             if write_header:
                 writer.writeheader()
             writer.writerow({k: f"{v:.6f}" if isinstance(v, float) else v
@@ -151,11 +166,17 @@ def validate(
  
         logits = model(inp)
         if logits.shape[-2:] != target.shape[-2:]:
-            #logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
-            logits = F.interpolate(logits, size=target.shape[-2:], mode='area')
+            logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
+            #logits = F.interpolate(logits, size=target.shape[-2:], mode='area')
+        
         loss = criterion(logits, target)
- 
         total_loss += loss.item()
+
+        # Threshold targets back to binary for standard metrics
+        # If using gaussian heatmaps, values at the center are 1.0, neighboring pixels fall off
+        # Thresholding at 0.5 retains the core region of the true peak for evaluation
+        binary_target = (target >= 0.5).float()
+        
         total_iou += compute_iou(logits, target) # default threshold=0.5
         total_iou_lowthresh += compute_iou(logits, target, threshold=0.3)
         total_bf1 += compute_boundary_f1(logits, target)
@@ -263,8 +284,15 @@ def main():
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
-    train_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=train_ids, dilate_target=(branch == "viirs"))
-    val_ds = WildfireDataset(bucket_name, prefix, branch, split_ids=val_ids, dilate_target=(branch == "viirs"))
+    # Initialize datasets to use Gaussian targets for VIIRS, keeping dilation completely off
+    train_ds = WildfireDataset(
+        bucket_name, prefix, branch, split_ids=train_ids, 
+        dilate_target=False, heatmap_target=(branch == "viirs")
+    )
+    val_ds = WildfireDataset(
+        bucket_name, prefix, branch, split_ids=val_ids, 
+        dilate_target=False, heatmap_target=(branch == "viirs")
+    )
  
     train_loader = DataLoader(
         train_ds,
@@ -286,14 +314,17 @@ def main():
     # ------------------------------------------------------------------
     # Model
     # ------------------------------------------------------------------
-    print("\nBuilding model...")
+    model_name = cfg["model"]["name"]
+    make_model = importlib.import_module(MODEL_REGISTRY[model_name]).make_model
+    
+    print(f"\nBuilding model ({model_name})...")
     model = make_model(
         goes_channels = cfg["data"]["goes_channels"],
         cov_channels = cfg["data"]["cov_channels"],
     ).to(device)
- 
+    
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"  HAUNet parameters: {n_params:,}")
+    print(f"  {model_name} parameters: {n_params:,}")
 
     # ------------------------------------------------------------------
     # Loss, Optimiser, Scheduler
@@ -302,15 +333,15 @@ def main():
  
     optimiser = torch.optim.AdamW(
         model.parameters(),
-        lr = cfg["training"]["learning_rate"],
-        weight_decay = cfg["training"]["weight_decay"],
+        lr = float(cfg["training"]["learning_rate"]),
+        weight_decay = float(cfg["training"]["weight_decay"]),
     )
  
     n_epochs = cfg["training"]["epochs"]
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimiser,
         T_max = n_epochs,
-        eta_min = cfg["training"]["min_lr"],
+        eta_min = float(cfg["training"]["min_lr"]),
     )
 
     # ------------------------------------------------------------------

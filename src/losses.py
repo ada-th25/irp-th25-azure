@@ -304,6 +304,63 @@ class FocalTverskyLoss(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# CenterNet Gaussian Focal Loss
+# ---------------------------------------------------------------------------
+
+class GaussianFocalLoss(nn.Module):
+    """
+    Penalty-reduced Focal Loss for Gaussian heatmaps (CenterNet / CornerNet).
+    Operates directly on logits (internally applies sigmoid).
+
+    Args:
+        alpha     (float): Focal loss power term for modulating predictions. Default: 2.0.
+        beta      (float): Power term for reducing background penalty near peak. Default: 4.0.
+        reduction (str)  : 'mean' | 'sum' | 'none'
+    """
+
+    def __init__(self, alpha: float = 2.0, beta: float = 4.0, reduction: str = "mean"):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.reduction = reduction
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            logits  : (B, 1, H, W) raw model predictions.
+            targets : (B, 1, H, W) continuous ground truth Gaussian heatmap [0.0, 1.0].
+        """
+        # Convert logits to probabilities
+        preds = torch.sigmoid(logits)
+        
+        # Clamp to avoid numerical instability under log
+        eps = 1e-12
+        preds = torch.clamp(preds, min=eps, max=1.0 - eps)
+
+        # Boolean masks isolate true peak coordinates vs penalty-reduced neighborhoods
+        pos_mask = (targets == 1.0)
+        neg_mask = (targets < 1.0)
+
+        # Loss formulas
+        pos_loss = -torch.log(preds) * torch.pow(1.0 - preds, self.alpha) * pos_mask
+        neg_loss = -torch.log(1.0 - preds) * torch.pow(preds, self.alpha) * torch.pow(1.0 - targets, self.beta) * neg_mask
+
+        loss = pos_loss + neg_loss
+
+        if self.reduction == "mean":
+            # Count positive targets (true peaks) across the batch
+            n_pos = pos_mask.float().sum().clamp(min=1.0)
+            return loss.sum() / n_pos
+        elif self.reduction == "sum":
+            return loss.sum()
+        
+        return loss
+
+    def extra_repr(self) -> str:
+        return f"alpha={self.alpha}, beta={self.beta}, reduction={self.reduction}"
+
+
+# ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
 
@@ -357,6 +414,12 @@ def build_loss(cfg: dict) -> nn.Module:
             focal_weight=cfg.get("focal_weight", 1.0),
             tversky_weight=cfg.get("tversky_weight", 1.0),
             smooth=cfg.get("smooth", 1.0),
+        )
+    elif loss_type in ("gaussian_focal", "gaussianfocalloss"):
+        return GaussianFocalLoss(
+            alpha=cfg.get("gaussian_alpha", 2.0),
+            beta=cfg.get("gaussian_beta", 4.0),
+            reduction=cfg.get("reduction", "mean"),
         )
     else:
         raise ValueError(
