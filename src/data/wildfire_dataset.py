@@ -97,11 +97,19 @@ class WildfireDataset(Dataset):
     """
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
-                 target_size=None, cov_size=None, goes_size=None, dilate_target=False):
+                 target_size=None, cov_size=None, goes_size=None, 
+                 dilate_target=False, heatmap_target=False):
+
+        # Ensure mutual exclusion as requested
+        if dilate_target and heatmap_target:
+            raise ValueError("dilate_target and heatmap_target cannot both be True. "
+                             "They are mutually exclusive target representation strategies.")
+        
         self.bucket_name = bucket_name
         self.branch = branch
         self.output_prefix = output_prefix
         self.dilate_target = dilate_target
+        self.heatmap_target = heatmap_target
         self._bucket = None       # created per-process, see self.bucket property
         self._client_pid = None   # tracks which process created self._bucket
  
@@ -229,6 +237,37 @@ class WildfireDataset(Dataset):
         return tensor[:, top:top+th, left:left+tw]
 
     # ------------------------------------------------------------------
+    # Gaussian Heatmap Generator
+    # ------------------------------------------------------------------
+
+    def make_gaussian_heatmap_target(self, binary_target: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
+        """
+        Converts binary keypoints into continuous Gaussian target heatmaps.
+        For every pixel with value 1.0, a Gaussian distribution is rendered around it.
+        Underlapping Gaussians retain the maximum value at each pixel.
+        """
+        _, h, w = binary_target.shape
+        # Create coordinate grid
+        y_grid, x_grid = torch.meshgrid(torch.arange(h), torch.arange(w), indexing="ij")
+        y_grid = y_grid.to(binary_target.device).float()
+        x_grid = x_grid.to(binary_target.device).float()
+
+        # Locate all active/non-zero peak coordinates (handles both {0, 1} and raw continuous inputs)
+        pos_indices = torch.nonzero(binary_target[0] > 0.0, as_tuple=False)
+        if len(pos_indices) == 0:
+            return torch.zeros_like(binary_target)
+
+        # Draw Gaussians around each point, taking the element-wise maximum
+        heatmap = torch.zeros((h, w), device=binary_target.device)
+        for py, px in pos_indices:
+            # Squared Euclidean distance
+            dist_sq = (x_grid - px) ** 2 + (y_grid - py) ** 2
+            channel_heatmap = torch.exp(-dist_sq / (2 * (sigma ** 2)))
+            heatmap = torch.max(heatmap, channel_heatmap)
+
+        return heatmap.unsqueeze(0)
+
+    # ------------------------------------------------------------------
     # Dataset protocol
     # ------------------------------------------------------------------
 
@@ -279,22 +318,19 @@ class WildfireDataset(Dataset):
                 mode="nearest",
             ).squeeze(0)
  
-        # VIIRS targets are raw FRP values (continuous, MW), not a binary
-        # fire mask -- binarize so the loss (Focal/Tversky) receives {0,1}.
         if self.branch == "viirs":
             target = (target > 0).float()
+            
+            # Apply dilation OR heatmap depending on config
             if self.dilate_target:
-                # Dilate each true fire pixel into its 3x3 neighbourhood.
-                # At this resolution (20x20, ~1-2 active pixels per
-                # sample), a single-pixel registration/snapping error causes region-overlap losses/metrics
-                # (Dice/Tversky/IoU) to score an otherwise-good prediction
-                # as a complete miss. Dilating gives 1-pixel tolerance.
-                # max_pool2d with kernel=3, stride=1, padding=1 grows each
-                # positive pixel into a 3x3 block without shifting position.
                 target = F.max_pool2d(
                     target.unsqueeze(0), kernel_size=3, stride=1, padding=1
                 ).squeeze(0)
-            target = (target > 0).float()
+                target = (target > 0).float()
+            elif self.heatmap_target:
+                # Convert binary targets into standard continuous Gaussian targets
+                # Default sigma = 1.0 fits small grids like 20x20 nicely
+                target = self.make_gaussian_heatmap_target(target, sigma=1.0)
  
         # Concatenate upsampled GOES with covariates into the model input
         inp = torch.cat([goes_up, cov], dim=0)
