@@ -267,3 +267,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Add implementation of the variation of focal loss from CornerNet (`GaussianFocalLoss` in `src/losses.py`). And add a function that converst the binary fire data into a Gaussian heatmap.
     * **Prompt:** (pasting existing `wildfire_dataset` code and link to the CornerNet paper) "Implement a Gaussian Focal Loss based on this paper, and edit wildfire_dataset to add a Gaussian heatmap function that converts every pixel with pixel with value 1.0, a Gaussian distribution is rendered around it.
     * **Human Modification:** Implement the loss as a class inside the loss script.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 18/07/2026
+    * **Scope:** Create a predictions plotting script `src/utils/plot_predictions.py` 
+    * **Prompt:** "Create a prediction plotting script that plots the input GOES the covariates, the true and predicted output."
