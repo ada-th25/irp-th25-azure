@@ -420,7 +420,13 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
     else:
         target_dt = resolve_landsat_target_dt(meta)
         goes_status, goes_info = fetch_and_validate_goes_local(
-            center_lon, center_lat, target_dt, LANDSAT_CONTEXT_EXTENT_M, utm_crs, goes_prefix
+            center_lon=center_lon,
+            center_lat=center_lat,
+            target_dt=target_dt,
+            extent_m=LANDSAT_CONTEXT_EXTENT_M,
+            utm_crs=utm_crs,
+            bucket_ctx=get_thread_bucket(),
+            goes_prefix=goes_prefix,
         )
         if goes_status == "ok":
             print(f"    [SAVED] GOES context: {sample_id} (zero_frac={goes_info['zero_fraction']:.3f})")
@@ -536,7 +542,13 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
     else:
         target_dt = peak_time.to_pydatetime() if hasattr(peak_time, "to_pydatetime") else peak_time
         goes_status, goes_info = fetch_and_validate_goes_local(
-            center_lon, center_lat, target_dt, VIIRS_CONTEXT_EXTENT_M, utm_crs, goes_prefix
+            center_lon=center_lon,
+            center_lat=center_lat,
+            target_dt=target_dt,
+            extent_m=VIIRS_CONTEXT_EXTENT_M,
+            utm_crs=utm_crs,
+            bucket_ctx=get_thread_bucket(),
+            goes_prefix=goes_prefix,
         )
         if goes_status == "ok":
             print(f"    [SAVED] GOES context: {cluster_id} (zero_frac={goes_info['zero_fraction']:.3f})")
@@ -577,38 +589,38 @@ def process_viirs_cluster(cluster_id, center_lon, center_lat, group_df):
     })
 
 def download_goes_and_upload_target(item):
-    # 1. Unpack item parameters safely, ignoring the mismatched positions
+    # Unpack item parameters safely, ignoring the mismatched positions
     cluster_id, center_lon, center_lat, peak_time, utm_crs = item[:5]
     mem_file, n_detections, max_frp, goes_prefix, manifest_path = item[5:]
     
-    # FIX: Explicitly resolve the actual thread-isolated GCS bucket context
+    # Explicitly resolve the actual thread-isolated GCS bucket context
     proc_bucket = get_thread_bucket()
     
-    # 3. Create the isolated thread scratch folder
+    # Create the isolated thread scratch folder
     thread_scratch = tempfile.mkdtemp(prefix=f"goes_task_{cluster_id}_", dir="/var/tmp")
     
     try:
         target_dt = peak_time.to_pydatetime() if hasattr(peak_time, "to_pydatetime") else peak_time
         
-        # 4. Invoke the local fetcher with the actual bucket context
+        # Invoke the local fetcher with the actual bucket context
         goes_status, goes_info = fetch_and_validate_goes_local(
-            center_lon=center_lon, 
-            center_lat=center_lat, 
-            target_dt=target_dt, 
-            extent_m=VIIRS_CONTEXT_EXTENT_M, 
-            utm_crs=utm_crs, 
-            bucket_ctx=proc_bucket,
+            center_lon=center_lon,
+            center_lat=center_lat,
+            target_dt=target_dt,
+            extent_m=VIIRS_CONTEXT_EXTENT_M,
+            utm_crs=utm_crs,
+            bucket_ctx=get_thread_bucket(),
             goes_prefix=goes_prefix,
             local_cache_dir=thread_scratch
         )
         goes_dispatched = (goes_status == "ok")
 
-        # 5. Upload the target VIIRS raster (from mem_file) to GCS
+        # Upload the target VIIRS raster (from mem_file) to GCS
         target_path_tif = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}.tif"
         mem_file.seek(0)
         proc_bucket.blob(target_path_tif).upload_from_file(mem_file, content_type='image/tiff')
 
-        # 6. Write the manifest metadata file to GCS
+        # Write the manifest metadata file to GCS
         manifest_data = {
             "id": cluster_id, 
             "branch": "viirs",
@@ -844,30 +856,6 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
             for item in network_work_items
         }
         
-        for idx, future in enumerate(concurrent.futures.as_completed(futures)):
-            c_id = futures[future]
-            try:
-                status = future.result()
-                if status == "ok":
-                    print(f"    [{idx+1}/{len(network_work_items)}] [SUCCESS] Saved target, GOES, and manifest: {c_id}")
-                else:
-                    print(f"    [{idx+1}/{len(network_work_items)}] [!] Storage I/O Error on {c_id}: {status}")
-            except Exception as e:
-                print(f"    [{idx+1}/{len(network_work_items)}] [!] Thread unexpected crash for cluster {c_id}: {e}")
-
-    print(f"\n[PHASE 2] Starting concurrent thread-pool storage I/O for {len(network_work_items)} clusters...")
-    
-    # max_workers=20 allows 20 network requests to run in parallel on the cloud backbone
-    import concurrent.futures
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        # Submit all tasks to the thread pool
-        futures = {
-            executor.submit(download_goes_and_upload_target, item): item[0] 
-            for item in network_work_items
-        }
-        
-        # Process outcomes as they complete
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
             c_id = futures[future]
             try:

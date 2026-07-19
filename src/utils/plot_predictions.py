@@ -3,7 +3,7 @@ Plot GOES bands, covariates, true target, and predicted fire probability
 for a handful of validation samples, side by side.
 
 Usage:
-    python plot_predictions.py --config experiments/e2_haunet_cascaded_stage1_test.YAML \
+    python -m src.utils.plot_predictions --config experiments/e2_haunet_cascaded_stage1_test.YAML \
         --checkpoint checkpoints_test/e2_haunet_viirs_cascaded_stage1_test/epoch_010.pt \
         --n-samples 4 --out predictions.png
 """
