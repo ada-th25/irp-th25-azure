@@ -17,10 +17,13 @@ data:
   cov_channels: 2                 # DEM, land cover: unchanged by the resolution rework
   num_workers: 2                  # small pool, no need for many workers
 
+model:
+  name: haunet
+
 training:
   batch_size: 2                   # keep tiny given the small split (train~16 at max-samples=20)
   grad_accum_steps: 4      # effective batch size = 2 * 4 = 8, same as intended
-  epochs: 30
+  epochs: 20
   learning_rate: 1.0e-4
   min_lr: 1.0e-6
   weight_decay: 1.0e-4
@@ -34,15 +37,13 @@ checkpointing:
   keep_last_n: 1                  # don't bother retaining history for a throwaway run
 
 logging:
-  log_dir: logs_smoke
+  log_dir: logs_normalised
   use_wandb: false                # keep smoke runs out of the real W&B project
 
 loss:
-  type: focal_tversky
+  type: gaussian_focal
   alpha: 0.75            # focal alpha, unchanged
   gamma: 2.0              # consider 3.0 if it still under-predicts fire
-  tversky_alpha: 0.2       # false-positive weight
-  tversky_beta: 0.65        # false-negative weight, penalizes missed fire pixels
+  gaussian_alpha: 2.0    # focal focusing exponent (CornerNet/CenterNet default)
+  gaussian_beta: 4.0     # penalty-reduction exponent for near-peak pixels
   smooth: 1.0              # Tversky smoothing (not the same scale as old Dice smooth)
-  focal_weight: 1.0
-  tversky_weight: 1.0
