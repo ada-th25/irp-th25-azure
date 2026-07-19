@@ -348,13 +348,14 @@ class GaussianFocalLoss(nn.Module):
         loss = pos_loss + neg_loss
 
         if self.reduction == "mean":
-            # Count positive targets (true peaks) across the batch
+            # Normalise pos and neg terms independently by their own pixel counts
             n_pos = pos_mask.float().sum().clamp(min=1.0)
-            return loss.sum() / n_pos
+            n_neg = neg_mask.float().sum().clamp(min=1.0)
+            return pos_loss.sum() / n_pos + neg_loss.sum() / n_neg
         elif self.reduction == "sum":
-            return loss.sum()
-        
-        return loss
+            return (pos_loss + neg_loss).sum()
+
+        return pos_loss + neg_loss
 
     def extra_repr(self) -> str:
         return f"alpha={self.alpha}, beta={self.beta}, reduction={self.reduction}"
