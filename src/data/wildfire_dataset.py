@@ -282,6 +282,12 @@ class WildfireDataset(Dataset):
         goes = self._read_gcs_raster(paths["goes_input"])
         cov = self._read_gcs_raster(paths["covariates"])
 
+        # Per-channel standardization for GOES (C07, C14, TFI), computed
+        # from compute_goes_stats.py over the training split
+        goes_mean = torch.tensor([305.98227561473846, 296.6176749324799, 9.364600682258606]).view(-1, 1, 1)
+        goes_std  = torch.tensor([12.870277949475222, 9.583713562045117, 7.1649856621255585]).view(-1, 1, 1)
+        goes = (goes - goes_mean) / goes_std
+
         cov[0] = cov[0] / 1000.0          # DEM in km instead of meters
         cov[1] = cov[1] / 100.0           # land cover code roughly to [0,1]
     
