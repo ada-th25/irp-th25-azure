@@ -19,8 +19,9 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor,
         prediction and target are empty (perfect agreement on "no fire").
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
-    intersection = (pred_mask * targets).sum()
-    union = (pred_mask + targets).clamp(0, 1).sum()
+    target_mask = (targets >= 0.5).float()
+    intersection = (pred_mask * target_mask).sum()
+    union = (pred_mask + target_mask).clamp(0, 1).sum()
     if union == 0:
         return 1.0
     return (intersection / union).item()
@@ -66,6 +67,7 @@ def compute_boundary_f1(preds: torch.Tensor, targets: torch.Tensor,
         either prediction or target (degenerate case).
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
+    target_mask = (targets >= 0.5).float()
 
     def get_boundary(mask: torch.Tensor) -> torch.Tensor:
         eroded = -nn.functional.max_pool2d(
@@ -74,7 +76,7 @@ def compute_boundary_f1(preds: torch.Tensor, targets: torch.Tensor,
         return (mask - eroded).clamp(0, 1)
 
     pred_boundary   = get_boundary(pred_mask)
-    target_boundary = get_boundary(targets.float())
+    target_boundary = get_boundary(target_mask)
 
     tp = (pred_boundary * target_boundary).sum().item()
     fp = (pred_boundary * (1 - target_boundary)).sum().item()
@@ -101,10 +103,11 @@ def compute_precision_recall(preds: torch.Tensor, targets: torch.Tensor,
         dict with keys 'precision', 'recall', 'f1'
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
+    target_mask = (targets >= 0.5).float()
 
-    tp = (pred_mask * targets).sum().item()
-    fp = (pred_mask * (1 - targets)).sum().item()
-    fn = ((1 - pred_mask) * targets).sum().item()
+    tp = (pred_mask * target_mask).sum().item()
+    fp = (pred_mask * (1 - target_mask)).sum().item()
+    fn = ((1 - pred_mask) * target_mask).sum().item()
 
     prec = tp / (tp + fp + 1e-8)
     rec = tp / (tp + fn + 1e-8)

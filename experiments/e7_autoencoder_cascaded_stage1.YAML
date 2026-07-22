@@ -1,6 +1,6 @@
 experiment:
   name: e7_autoencoder_cascaded_stage1
-  branch: viirs          # or "landsat"
+  branch: viirs
 
 model:
   name: autoencoder
@@ -19,8 +19,8 @@ training:
   weight_decay: 1.0e-5
   epochs: 20
   min_lr: 1.0e-6
-  grad_clip: 1.0
-  grad_accum_steps: 1
+  grad_clip: 2.0
+  grad_accum_steps: 4
   val_every_n_epochs: 1
   save_every_n_epochs: 3
 
