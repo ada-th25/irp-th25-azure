@@ -268,8 +268,9 @@ def fetch_and_validate_goes_local(
     if bucket_ctx is None:
         bucket_ctx = get_thread_bucket()
 
-    to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-    cx, cy = to_utm.transform(center_lon, center_lat)
+    with GDAL_IO_LOCK:
+        to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+        cx, cy = to_utm.transform(center_lon, center_lat)
     half = extent_m / 2.0
     xmin, xmax, ymin, ymax = cx - half, cx + half, cy - half, cy + half
 
@@ -392,7 +393,7 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
 
     try:
         fb.seek(0)
-        with rasterio.open(fb) as src:
+        with GDAL_IO_LOCK, rasterio.open(fb) as src:
             mask = src.read(1)
         n_active_pixels = int(np.sum(mask == 1))
         if n_active_pixels < MIN_ACTIVE_PIXELS:
@@ -405,7 +406,6 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
 
     center_lon, center_lat = meta['center']
     utm_crs = get_utm_epsg(center_lon, center_lat)
-    context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M, utm_crs)
 
     if not gcs_exists(target_prefix):
         blob = bucket.blob(f"{target_prefix}.tif")
@@ -436,11 +436,13 @@ def process_landsat_sample(meta, fb, mask_source="intersection"):
 
     if not gcs_exists(cov_prefix):
         wait_for_queue_slot()
-        ee.batch.Export.image.toCloudStorage(
-            image=COVARIATE_STACK.clip(context_roi), description=f"cov_ls_{sample_id}",
-            bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
-            scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
-        ).start()
+        with EE_DISPATCH_LOCK:
+            context_roi = build_roi(center_lon, center_lat, LANDSAT_CONTEXT_EXTENT_M, utm_crs)
+            ee.batch.Export.image.toCloudStorage(
+                image=COVARIATE_STACK.clip(context_roi), description=f"cov_ls_{sample_id}",
+                bucket=BUCKET_NAME, fileNamePrefix=cov_prefix, region=context_roi,
+                scale=LANDSAT_GRID_SCALE, crs=utm_crs, fileFormat='GeoTIFF'
+            ).start()
         print(f"    [DISPATCHED] Covariate export: {sample_id}")
 
     write_manifest(manifest_path, {
@@ -1028,8 +1030,8 @@ if __name__ == "__main__":
     MANUAL_ANNOTATIONS_FILE_ID = "1LdsX-rH5hy_82jfc1akO8p4n0_N8lRgf"
     MANUAL_ANNOTATIONS_FILE_NAME = "manual_annotations_patches.zip"
 
-    MAX_SUB_ARCHIVES = 10_000     # effectively unbounded - each zip has <1000 sub-archives
-    MAX_TIFFS_PER_SUB = 10_000    # effectively unbounded - typically 1 intersection tiff per sub-archive
+    MAX_SUB_ARCHIVES = 10_000
+    MAX_TIFFS_PER_SUB = 10_000
     MAX_VIIRS_CLUSTERS = 10_000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
