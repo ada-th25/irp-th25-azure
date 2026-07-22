@@ -68,7 +68,7 @@ def main():
 
     batch = next(iter(loader))
     inp = batch["input"].to(device)
-    inp[:, :3] = 0.0 # zero the GOES channels (first 3), keep DEM/land cover
+    #inp[:, :3] = 0.0 # zero the GOES channels (first 3), keep DEM/land cover
     target = batch["target"].to(device)
     goes = batch["goes"]          # (B, 3, goes_H, goes_W) -- raw, low-res
     cov = batch["covariates"]     # (B, 2, cov_H, cov_W) -- as fed to the model

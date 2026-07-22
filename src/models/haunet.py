@@ -4,6 +4,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
+def set_reflect_padding(model):
+    """Switch every Conv2d's padding_mode from zeros to reflect, in-place.
+    Reflect padding avoids the artificial zero-border signal that causes
+    edge artifacts (a bright/dark frame around every prediction) in deep
+    conv stacks."""
+    for module in model.modules():
+        if isinstance(module, nn.Conv2d) and module.padding[0] > 0:
+            module.padding_mode = 'reflect'
+    return model
+
 def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
                cov_refine_channels=32, cov_window_size=8):
     """
@@ -24,7 +34,7 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
     Returns:
         HAUNet instance configured for 256x256 -> 256x256 fire mask prediction.
     """
-    return HAUNet(
+    model = HAUNet(
         goes_channels=goes_channels,
         cov_channels=cov_channels,
         width=96,
@@ -35,6 +45,7 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
         cov_refine_channels=cov_refine_channels,
         cov_window_size=cov_window_size,
     )
+    return set_reflect_padding(model)
 
 class LayerNormFunction(torch.autograd.Function):
     @staticmethod
@@ -240,8 +251,10 @@ class qkvblock(nn.Module):
 
     def forward(self, encs):
         enc0 = encs[0]
-        enc1= nn.Upsample(scale_factor=2)(encs[1])
-        enc2= nn.Upsample(scale_factor=4)(encs[2])
+        #enc1= nn.Upsample(scale_factor=2)(encs[1])
+        #enc2= nn.Upsample(scale_factor=4)(encs[2])
+        enc1 = F.interpolate(encs[1], scale_factor=2, mode='bilinear', align_corners=False)
+        enc2 = F.interpolate(encs[2], scale_factor=4, mode='bilinear', align_corners=False)
         q = self.normq(enc0)
         q1 = self.normq1(enc1)
         q2 = self.normq2(enc2)
@@ -304,8 +317,10 @@ class qkvblock(nn.Module):
         x2 = self.sg(x2)
         x2 = self.conv5_2(x2)
         out2 = y2 + x2 * self.gamma2
-        out1 = nn.Upsample(scale_factor=0.5)(out1)
-        out2 = nn.Upsample(scale_factor=0.25)(out2)
+        #out1 = nn.Upsample(scale_factor=0.5)(out1)
+        #out2 = nn.Upsample(scale_factor=0.25)(out2)
+        out1 = F.avg_pool2d(out1, kernel_size=2, stride=2)   # was nn.Upsample(scale_factor=0.5)
+        out2 = F.avg_pool2d(out2, kernel_size=4, stride=4)   # was nn.Upsample(scale_factor=0.25)
         outs = []
         outs.append(out0)
         outs.append(out1)
@@ -473,19 +488,24 @@ class CEMBlock(nn.Module):
         return y + x * self.gamma
 
 class WindowedSCEMBlock(nn.Module):
-    def __init__(self, c, window_size=8, num_heads=2, FFN_Expand=2, drop_out_rate=0.):
+    def __init__(self, c, window_size=8, shift_size=0, num_heads=2, FFN_Expand=2, drop_out_rate=0.):
         super().__init__()
         self.window_size = window_size
+        self.shift_size = shift_size
         self.block = S_CEMBlock(c, num_heads=num_heads, FFN_Expand=FFN_Expand,
                                  drop_out_rate=drop_out_rate)
  
     def forward(self, x):
         B, C, H, W = x.shape
         ws = self.window_size
+
+        # Cyclic shift before windowing, if this block is a "shifted" stage
+        if self.shift_size > 0:
+            x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(2, 3))
  
         pad_h = (ws - H % ws) % ws
         pad_w = (ws - W % ws) % ws
-        x_p = F.pad(x, (0, pad_w, 0, pad_h)) if (pad_h or pad_w) else x
+        x_p = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect') if (pad_h or pad_w) else x
         Hp, Wp = x_p.shape[-2:]
  
         # Partition into non-overlapping windows:
@@ -501,7 +521,13 @@ class WindowedSCEMBlock(nn.Module):
         x_p = x_p.permute(0, 3, 1, 4, 2, 5).contiguous()
         x_p = x_p.view(B, C, Hp, Wp)
  
-        return x_p[:, :, :H, :W]
+        x_p = x_p[:, :, :H, :W]
+
+        # Reverse the cyclic shift
+        if self.shift_size > 0:
+            x_p = torch.roll(x_p, shifts=(self.shift_size, self.shift_size), dims=(2, 3))
+
+        return x_p
     
 class CovariatePyramidEncoder(nn.Module):
     def __init__(self, cov_channels, refine_channels, n_stages, window_size=8):
@@ -509,18 +535,19 @@ class CovariatePyramidEncoder(nn.Module):
         self.stem = nn.Sequential(
             nn.Conv2d(cov_channels, refine_channels, 3, padding=1),
             nn.ReLU(inplace=True),
-            WindowedSCEMBlock(refine_channels, window_size=window_size),
+            WindowedSCEMBlock(refine_channels, window_size=window_size, shift_size=0),
+            WindowedSCEMBlock(refine_channels, window_size=window_size, shift_size=window_size // 2),
         )
         self.down_stages = nn.ModuleList()
         for _ in range(n_stages):
             self.down_stages.append(nn.Sequential(
                 nn.Conv2d(refine_channels, refine_channels, 3, stride=2, padding=1),
                 nn.ReLU(inplace=True),
-                WindowedSCEMBlock(refine_channels, window_size=window_size),
+                WindowedSCEMBlock(refine_channels, window_size=window_size, shift_size=0),
+                WindowedSCEMBlock(refine_channels, window_size=window_size, shift_size=window_size // 2),
             ))
- 
+
     def forward(self, cov):
-        """Returns a list of features [full_res, H/2, H/4, ..., H/2^n_stages]."""
         feats = [self.stem(cov)]
         c = feats[0]
         for stage in self.down_stages:
@@ -603,7 +630,8 @@ class HAUNet(nn.Module):
         ii = 0
         for numii, num in enumerate(dec_blk_nums):
             self.ups.append(nn.Sequential(
-                nn.ConvTranspose2d(chan, chan, kernel_size=2, stride=2)
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                nn.Conv2d(chan, chan, kernel_size=3, padding=1)
             ))
             if numii < 1:
                 self.decoders.append(nn.Sequential(
@@ -626,7 +654,10 @@ class HAUNet(nn.Module):
         )
 
         self.refine_ups = nn.ModuleList([
-            nn.ConvTranspose2d(width, width, kernel_size=2, stride=2)
+            nn.Sequential(
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                nn.Conv2d(width, width, kernel_size=3, padding=1)
+            )
             for _ in range(self.n_refine_stages)
         ])
         self.refine_fuse = nn.ModuleList([
@@ -714,7 +745,7 @@ class HAUNet(nn.Module):
         _, _, h, w = x.size()
         mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
         mod_pad_w = (self.padder_size - w % self.padder_size) % self.padder_size
-        return F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
+        return F.pad(x, (0, mod_pad_w, 0, mod_pad_h), mode='reflect')
 
 # ---------------------------------------------------------------------------
 # Utilities
