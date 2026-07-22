@@ -12,7 +12,10 @@ data:
   bucket_name: wildfire-irp-data-th25
   output_prefix: processed_dataset_gcp
   splits_dir: splits_500_samples_test        # <- points at the subsampled 80/10/10 split,
-                                   #    not the real 'splits/' full dataset
+  heatmap_sigma: 0.6
+  goes_mean: [305.98227561473846, 296.6176749324799, 9.364600682258606]
+  goes_std: [12.870277949475222, 9.583713562045117, 7.1649856621255585]
+        
   goes_channels: 3                # C07, C14, GOES_TFI: unchanged by the resolution rework
   cov_channels: 2                 # DEM, land cover: unchanged by the resolution rework
   num_workers: 2                  # small pool, no need for many workers

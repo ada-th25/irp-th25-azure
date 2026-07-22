@@ -97,8 +97,9 @@ class WildfireDataset(Dataset):
     """
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
-                 target_size=None, cov_size=None, goes_size=None, 
-                 dilate_target=False, heatmap_target=False):
+             target_size=None, cov_size=None, goes_size=None, 
+             dilate_target=False, heatmap_target=False,
+             goes_mean=None, goes_std=None, heatmap_sigma=1.0):
 
         # Ensure mutual exclusion as requested
         if dilate_target and heatmap_target:
@@ -112,6 +113,14 @@ class WildfireDataset(Dataset):
         self.heatmap_target = heatmap_target
         self._bucket = None       # created per-process, see self.bucket property
         self._client_pid = None   # tracks which process created self._bucket
+
+        # GOES per-channel standardization stats (computed via compute_goes_stats.py
+        # over the training split). Defaults preserve current behavior if the YAML
+        # doesn't override them.
+        default_goes_mean = [305.98227561473846, 296.6176749324799, 9.364600682258606]
+        default_goes_std  = [12.870277949475222, 9.583713562045117, 7.1649856621255585]
+        self.goes_mean = torch.tensor(goes_mean if goes_mean is not None else default_goes_mean).view(-1, 1, 1)
+        self.goes_std  = torch.tensor(goes_std if goes_std is not None else default_goes_std).view(-1, 1, 1)
  
         defaults = DEFAULT_SIZES.get(branch, DEFAULT_SIZES["landsat"])
         self.target_size = tuple(target_size) if target_size is not None else defaults["target_size"]
@@ -282,11 +291,7 @@ class WildfireDataset(Dataset):
         goes = self._read_gcs_raster(paths["goes_input"])
         cov = self._read_gcs_raster(paths["covariates"])
 
-        # Per-channel standardization for GOES (C07, C14, TFI), computed
-        # from compute_goes_stats.py over the training split
-        goes_mean = torch.tensor([305.98227561473846, 296.6176749324799, 9.364600682258606]).view(-1, 1, 1)
-        goes_std  = torch.tensor([12.870277949475222, 9.583713562045117, 7.1649856621255585]).view(-1, 1, 1)
-        goes = (goes - goes_mean) / goes_std
+        goes = (goes - self.goes_mean) / self.goes_std
 
         cov[0] = cov[0] / 1000.0          # DEM in km instead of meters
         cov[1] = cov[1] / 100.0           # land cover code roughly to [0,1]
@@ -335,8 +340,7 @@ class WildfireDataset(Dataset):
                 target = (target > 0).float()
             elif self.heatmap_target:
                 # Convert binary targets into standard continuous Gaussian targets
-                # Default sigma = 1.0 fits small grids like 20x20 nicely
-                target = self.make_gaussian_heatmap_target(target, sigma=1.0)
+                target = self.make_gaussian_heatmap_target(target, sigma=self.heatmap_sigma)
  
         # Concatenate upsampled GOES with covariates into the model input
         inp = torch.cat([goes_up, cov], dim=0)

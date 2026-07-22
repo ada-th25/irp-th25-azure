@@ -285,16 +285,22 @@ def main():
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
-    # Initialize datasets to use Gaussian targets for VIIRS, keeping dilation completely off
+    # Initialise datasets to use Gaussian targets for VIIRS, keeping dilation completely off
     train_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=train_ids, 
-        dilate_target=False, heatmap_target=(branch == "viirs")
+        dilate_target=False, heatmap_target=(branch == "viirs"),
+        goes_mean=cfg["data"].get("goes_mean"),
+        goes_std=cfg["data"].get("goes_std"),
+        heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
     )
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids, 
-        dilate_target=False, heatmap_target=(branch == "viirs")
+        dilate_target=False, heatmap_target=(branch == "viirs"),
+        goes_mean=cfg["data"].get("goes_mean"),
+        goes_std=cfg["data"].get("goes_std"),
+        heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
     )
- 
+     
     train_loader = DataLoader(
         train_ds,
         batch_size = cfg["training"]["batch_size"],

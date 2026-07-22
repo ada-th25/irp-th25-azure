@@ -12,6 +12,9 @@ data:
   goes_channels: 3
   cov_channels: 2
   num_workers: 4
+  heatmap_sigma: 1.0
+  goes_mean: [305.98227561473846, 296.6176749324799, 9.364600682258606]
+  goes_std: [12.870277949475222, 9.583713562045117, 7.1649856621255585]
 
 training:
   batch_size: 2
