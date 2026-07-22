@@ -37,7 +37,7 @@ checkpointing:
   keep_last_n: 1                  # don't bother retaining history for a throwaway run
 
 logging:
-  log_dir: logs_normalised
+  log_dir: logs
   use_wandb: false                # keep smoke runs out of the real W&B project
 
 loss:

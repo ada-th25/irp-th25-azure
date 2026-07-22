@@ -113,8 +113,9 @@ def train_one_epoch(
         target = batch["target"].to(device)    # (B, 1, 256, 256)
  
         logits = model(inp)                    # (B, 1, H_in, W_in)
+        
         if logits.shape[-2:] != target.shape[-2:]:
-            logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
+            logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
         loss = criterion(logits, target)
  
         # Scale the loss down by accum_steps so that summing gradients
@@ -166,7 +167,7 @@ def validate(
  
         logits = model(inp)
         if logits.shape[-2:] != target.shape[-2:]:
-            logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
+            logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
             #logits = F.interpolate(logits, size=target.shape[-2:], mode='area')
         
         loss = criterion(logits, target)
@@ -175,7 +176,7 @@ def validate(
         # Threshold targets back to binary for standard metrics
         # If using gaussian heatmaps, values at the center are 1.0, neighboring pixels fall off
         # Thresholding at 0.5 retains the core region of the true peak for evaluation
-        binary_target = (target >= 0.5).float()
+        #binary_target = (target >= 0.5).float()
         
         total_iou += compute_iou(logits, target) # default threshold=0.5
         total_iou_lowthresh += compute_iou(logits, target, threshold=0.3)
@@ -360,7 +361,15 @@ def main():
     if args.resume:
         print(f"\nResuming from {args.resume}...")
         ckpt = torch.load(args.resume, map_location=device)
-        model.load_state_dict(ckpt["model"])
+    
+        result = model.load_state_dict(ckpt["model"], strict=False)
+        if result.missing_keys:
+            print(f"  [WARN] Missing keys (in model, not in checkpoint): {result.missing_keys}")
+        if result.unexpected_keys:
+            print(f"  [WARN] Unexpected keys (in checkpoint, not in model): {result.unexpected_keys}")
+        if not result.missing_keys and not result.unexpected_keys:
+            print("  Model weights loaded successfully — all keys matched.")
+    
         optimiser.load_state_dict(ckpt["optimiser"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
