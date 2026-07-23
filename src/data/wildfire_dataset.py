@@ -111,6 +111,7 @@ class WildfireDataset(Dataset):
         self.output_prefix = output_prefix
         self.dilate_target = dilate_target
         self.heatmap_target = heatmap_target
+        self.heatmap_sigma = heatmap_sigma
         self._bucket = None       # created per-process, see self.bucket property
         self._client_pid = None   # tracks which process created self._bucket
 
