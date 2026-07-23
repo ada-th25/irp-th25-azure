@@ -139,3 +139,14 @@
 - **Work Plan Before Next Meeting:**
     - Try to tweak HAUNet further and try to get the model to NOT predict everything as 'no fire'
     - Implement the Badhan et al. and see if it is any better.
+
+### Meeting With Main and Second Supervisor (23 Jul 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor), Anna Korre (Second Supervisor)
+- **Key Points:**
+    - Explained the project progress up to date, including data pipeline and model building.
+    - Discussed how I can help Anna understand project progress.
+- **Feedback:**
+    - Write and send her a document of the summaries and details of my project progress.
+    - Consider reducing the area of interest/forcing the model to focus on certain parts to remove unnecessary noise and improve accuracy.
+- **Work Plan Before Next Meeting:**
+    - Write up a document with my project progress to send to Anna.

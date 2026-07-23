@@ -272,3 +272,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 18/07/2026
     * **Scope:** Create a predictions plotting script `src/utils/plot_predictions.py` 
     * **Prompt:** "Create a prediction plotting script that plots the input GOES the covariates, the true and predicted output."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 22/07/2026
+    * **Scope:** Create autoencoder model (`src/models/autoencoder.py`) based on the model in the paper "Deep Learning Approach to Improve Spatial Resolution of GOES-17 Wildfire Boundaries Using VIIRS Satellite Data" by Badhan et al.
+    * **Prompt:** (Uploaded the Badhan et al. paper) "Generate the autoencoder model based on this paper."
+    * **Human Modification:** Accept covariates input, remove the two-branch structure.

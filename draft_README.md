@@ -12,12 +12,18 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 ├── deliverables/               # Project plan and report
 │   ├── project_plan.pdf        # Initial project scope and timeline
 │   └── final_report.pdf        # Completed IRP final report
-├── requirements.txt            # Project dependencies
+├── experiments/                # Model training configurations and hyperparameter settings (YAML)
+├── requirements.txt
 ├── logbook/                    # Project tracking and meeting records
 ├── notebooks/                  # Project notes and exploratory ipynb notebooks
 ├── src/                        # Main project codebase and source modules
 │   ├── data/                   # Data generation, preprocessing, loading and pipeline scripts
+│   ├── losses.py
+│   ├── metrics.py
+│   ├── train.py
+│   ├── utils/
 │   └── models/                 # Model architectures
-│       └── haunet              # HAUNet
+│       ├── autoencoder.py      # Autoencoder (based on Badhan et al.)
+│       └── haunet.py           # Hybrid Attention U-Net (HAUNet)
 ├── tests/                      # Test scripts
-└── README.md                   # Project overview
+└── README.md
