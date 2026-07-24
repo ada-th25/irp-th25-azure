@@ -1,4 +1,6 @@
 """
+NOTE: Must run src/utils/enrich_manifests.py before running the splits.
+
 Usage example: python src/data/split_data.py --branch viirs --max-samples 500 --suffix 500_samples_test --overwrite
 """
 

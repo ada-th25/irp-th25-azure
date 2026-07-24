@@ -31,6 +31,18 @@ GDAL_IO_LOCK = threading.Lock()
 _netcdf_io_lock = GDAL_IO_LOCK
 _in_use_paths = {}
 
+# One lock per scan_key, so concurrent threads wanting the SAME scan
+# serialise on download+rename, while different scans still proceed in parallel
+_download_locks = {}
+_download_locks_guard = threading.Lock()
+
+
+def _get_download_lock(scan_key):
+    with _download_locks_guard:
+        if scan_key not in _download_locks:
+            _download_locks[scan_key] = threading.Lock()
+        return _download_locks[scan_key]
+
 
 def _mark_in_use(path):
     with _scan_cache_lock:
@@ -81,10 +93,12 @@ def _evict_lru_if_needed(incoming_path, cache_dir=GOES_CACHE_DIR):
                 os.remove(fpath)
                 total -= size
                 # Drop it from the in-memory cache map too so callers re-download
-                # rather than returning a path to a now-deleted file.
+                # rather than returning a path to a now-deleted file
                 stale_keys = [k for k, v in _scan_cache.items() if v == fpath]
                 for k in stale_keys:
                     _scan_cache.pop(k, None)
+                    with _download_locks_guard:
+                        _download_locks.pop(k, None)
             except FileNotFoundError:
                 continue
     except Exception as e:
@@ -130,8 +144,6 @@ def find_closest_goes_blob(target_utc_dt, satellite="G16"):
 
 def _reproject_bands(nc_path, xmin, ymin, xmax, ymax, width, height, dst_crs,
                      target_shape=None, target_transform=None):
-    # Serialised: netCDF4/HDF5 + GDAL are not safe to touch concurrently
-    # from multiple threads (silent segfault otherwise, no traceback).
     with _netcdf_io_lock, xr.open_dataset(nc_path, mask_and_scale=True) as ds:
         # Sort coordinates to match standard grid indexing
         ds = ds.sortby("y").sortby("x")
@@ -204,7 +216,7 @@ def fetch_goes_local_stack(center_lon, center_lat, target_dt, extent_m, utm_crs,
  
     time_diff, scan_dt, blob, sat = best
     
-    # MODIFIED: Pass local_cache_dir down to cache downloader
+    # Pass local_cache_dir down to cache downloader
     nc_path = _download_scan_cached(blob, scan_dt, sat, local_cache_dir=local_cache_dir)
  
     try:
@@ -273,7 +285,6 @@ def _download_scan_cached(blob, scan_dt, satellite, local_cache_dir=None):
     Callers MUST call _unmark_in_use(path) when done reading it."""
     scan_key = (satellite, scan_dt.strftime("%Y%m%dT%H%M%S"))
     
-    # MODIFIED: Fallback to global config if thread-isolated path isn't provided
     cache_dir = local_cache_dir if local_cache_dir is not None else GOES_CACHE_DIR
  
     with _scan_cache_lock:
@@ -283,27 +294,24 @@ def _download_scan_cached(blob, scan_dt, satellite, local_cache_dir=None):
             _in_use_paths[cached_path] = _in_use_paths.get(cached_path, 0) + 1
             return cached_path
         
-        # MODIFIED: Use determined cache_dir
         local_path = os.path.join(cache_dir, f"{satellite}_{scan_key[1]}.nc")
         _scan_cache[scan_key] = local_path
-        # Make room before downloading a new scan, so the cache dir stays
-        # bounded regardless of how many distinct scans a full run touches.
         _evict_lru_if_needed(local_path, cache_dir=cache_dir)
-        # Reserve it as in-use immediately so a concurrent eviction (triggered
-        # by another thread's download) can never delete it out from under us.
         _in_use_paths[local_path] = _in_use_paths.get(local_path, 0) + 1
- 
-    if not os.path.exists(local_path) or not _is_valid_nc(local_path):
-        tmp_path = local_path + ".part"
-        blob.download_to_filename(tmp_path)
-        os.replace(tmp_path, local_path)
+
+    download_lock = _get_download_lock(scan_key)
+    with download_lock:
+        if not os.path.exists(local_path) or not _is_valid_nc(local_path):
+            tmp_path = local_path + f".{os.getpid()}.{threading.get_ident()}.part"
+            blob.download_to_filename(tmp_path)
+            os.replace(tmp_path, local_path)
  
     return local_path
 
 
 def _is_valid_nc(path):
     try:
-        with xr.open_dataset(path) as ds:
+        with _netcdf_io_lock, xr.open_dataset(path) as ds:
             _ = ds.goes_imager_projection
         return True
     except Exception:
