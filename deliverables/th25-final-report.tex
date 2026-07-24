@@ -8,6 +8,8 @@
 \usepackage{listings}
 \usepackage{subcaption}
 \usepackage{siunitx}
+\usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage[T1]{fontenc} % Ensures proper font encoding and crisp text
 \usepackage[a4paper, margin=1in]{geometry}
 \usepackage[dvipsnames]{xcolor}
@@ -181,12 +183,32 @@ For the targets, the continuous VIIRS FRP values are binarised into active fire 
 \subsection{HAUNet (Hybrid Attention U-Net)}
 Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses hybrid attention to capture both local fine detail and broader contextual structure across multiple scales. HAUNet was selected for its ability to capture local extreme hotspots in near-zero background, which standard U-Nets might smooth out.
 HAUNet uses two variants of attention blocks:
+
+\subsubsection{Hybrid Attention Mechanisms}
 \begin{itemize}
-    \item \textbf{CEM}: Applies channel attention.
-    \item \textbf{S\_CEM}: Additionally applies spatial attention in parallel.
+    \item \textbf{Channel Attention Module (CEM):} Computes channel dependencies with $O(C^2)$ complexity. Given feature map $\mathbf{X} \in \mathbb{R}^{C \times H \times W}$, queries $\mathbf{Q}$, keys $\mathbf{K}$, and values $\mathbf{V}$ are generated via $1 \times 1$ convolutions followed by $3 \times 3$ depthwise convolutions. The channel attention map $\mathbf{A}_c$ is derived as:
+    \begin{equation}
+        \mathbf{A}_c = \text{Softmax}\left(\text{ReLU}\left(\frac{\mathbf{Q} \mathbf{K}^T}{\alpha}\right)\right) \mathbf{V}
+    \end{equation}
+    where $\alpha$ is a learnable scaling parameter.
+    
+    \item \textbf{Spatial-Channel Attention (S\_CEM):} Parallel spatial attention branch operating along transposed dimensions $\mathbf{Q}_s, \mathbf{K}_s, \mathbf{V}_s \in \mathbb{R}^{B \times N_{head} \times HW \times C}$. The full spatial attention step scales quadratically with spatial resolution as $O((HW)^2)$.
 \end{itemize}
 
-The model uses cross-scale attention module as skip connections across different scale outputs in the encoder, to capture dependency between different scales. The overall framework of wildfire-adapted HAUNet is shown in Figure \ref{fig:haunet}. The original HAUNet S\_CEM does full spatial attention, which is $O((H\cdot W)^2)$ and will run into OOM crashes. Hence the input GOES and covariates are sampled to a smaller image before feeding into the model. But this loses covariates' high-resolution information, so an additional covariate pyramid encoder was added form the original model to run in parallel. This performs windowed spatial attention on the covariates at fine resolution. The output of the covariate encoders are fused at different scales during refinement.
+\subsubsection{Full-Resolution Covariate Pyramid Branch}
+Because full spatial attention in S\_CEM imposes an $O((HW)^2)$ memory footprint that causes out-of-memory errors on full-resolution inputs, the inputs ($256 \times 256$) are downsampled by factor $D=4$ (i.e. $256/4 = 64$) before passing to the model. 
+
+To prevent losing high-resolution spatial information of the covariates, we introduce a parallel, full-resolution Covariate Pyramid Encoder. This branch processes full-resolution covariate features using Windowed Spatial-Channel Attention Blocks (Windowed-S\_CEM) (\cite{liuSwinTransformerHierarchical2021}) for computational efficiency.
+
+For a feature map partitioned into non-overlapping local windows of size $P \times P$ ($P=8$), Windowed-S\_CEM computes spatial attention independently within each window. The window is shifted sequentially with shift size $P/2$. This keeps the spatial attention complexity to $O(P^4)$ per window, independent of overall spatial input dimensions.
+
+\subsubsection{Multi-Scale Refinement and Feature Fusion}
+The main encoder-decoder path produces low-resolution feature representations ($64 \times 64$). The final refinement stage produces the final high-resolution output. At each stage:
+\begin{enumerate}
+    \item Low-resolution features are upsampled via bilinear interpolation followed by $3 \times 3$ convolutions.
+    \item Upsampled features are concatenated with matching scale representations extracted from the Covariate Pyramid Encoder.
+    \item A $3 \times 3$ fusion convolution maps concatenated features back to channel dimension.
+\end{enumerate}
 
 \begin{figure}[htbp]
     \centering
