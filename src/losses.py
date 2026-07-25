@@ -366,6 +366,41 @@ class GaussianFocalLoss(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Focal Dice Gaussian Loss
+# ---------------------------------------------------------------------------
+class FocalDiceGaussianLoss(nn.Module):
+    """
+    Weighted combination of FocalDiceLoss (mask-overlap driven) and
+    GaussianFocalLoss (distance-to-peak driven), both applied to the same
+    continuous Gaussian heatmap target. Intended to fix the "sharp but
+    offset" failure mode of dice losses alone: FocalDice gives
+    strong convergence on approximate fire regions, GaussianFocal adds a
+    smooth gradient that specifically penalises being off-center.
+
+    Args:
+        fd_weight  (float): weight on the FocalDiceLoss term.
+        gf_weight  (float): weight on the GaussianFocalLoss term.
+        fd_kwargs  (dict):  kwargs forwarded to FocalDiceLoss.
+        gf_kwargs  (dict):  kwargs forwarded to GaussianFocalLoss.
+    """
+
+    def __init__(self, fd_weight: float = 0.5, gf_weight: float = 0.5,
+                 fd_kwargs: dict = None, gf_kwargs: dict = None):
+        super().__init__()
+        self.focal_dice = FocalDiceLoss(**(fd_kwargs or {}))
+        self.gaussian = GaussianFocalLoss(**(gf_kwargs or {}))
+        self.fd_weight = fd_weight
+        self.gf_weight = gf_weight
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        return (self.fd_weight * self.focal_dice(logits, targets)
+                + self.gf_weight * self.gaussian(logits, targets))
+
+    def extra_repr(self) -> str:
+        return f"fd_weight={self.fd_weight}, gf_weight={self.gf_weight}"
+
+
+# ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
 
@@ -426,8 +461,24 @@ def build_loss(cfg: dict) -> nn.Module:
             beta=cfg.get("gaussian_beta", 4.0),
             reduction=cfg.get("reduction", "mean"),
         )
+    elif loss_type == "focal_dice_gaussian":
+        return FocalDiceGaussianLoss(
+            fd_weight=cfg.get("fd_weight", 0.5),
+            gf_weight=cfg.get("gf_weight", 0.5),
+            fd_kwargs={
+                "alpha": cfg.get("alpha", 0.75),
+                "gamma": cfg.get("gamma", 2.0),
+                "focal_weight": cfg.get("focal_weight", 1.0),
+                "dice_weight": cfg.get("dice_weight", 1.0),
+                "smooth": cfg.get("smooth", 0.1),
+            },
+            gf_kwargs={
+                "alpha": cfg.get("gaussian_alpha", 2.0),
+                "beta": cfg.get("gaussian_beta", 4.0),
+            },
+        )
     else:
         raise ValueError(
             f"Unknown loss type '{loss_type}'. Choose from: "
-            f"focal, dice, tversky, focal_dice, focal_tversky."
+            f"focal, dice, tversky, focal_dice, focal_tversky, gaussian_focal, focal_dice_gaussian."
         )
