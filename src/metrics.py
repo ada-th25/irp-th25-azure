@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from sklearn.metrics import average_precision_score
 
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor,
@@ -116,19 +117,89 @@ def compute_precision_recall(preds: torch.Tensor, targets: torch.Tensor,
     return {"precision": prec, "recall": rec, "f1": f1}
 
 
+def compute_auprc(preds: torch.Tensor, targets: torch.Tensor) -> float:
+    """
+    Average precision computed directly on continuous probabilities vs.
+    continuous/binary targets, no thresholding. This is the fair way to
+    compare losses whose output calibration (max prob, sharpness) differs,
+    since compute_iou/precision/recall depend heavily on a fixed threshold
+    that different losses clear very differently.
+
+    Returns:
+        Scalar AUPRC averaged over the batch. Skips samples with an
+        all-zero target (undefined precision-recall curve).
+    """
+    probs = torch.sigmoid(preds).detach().cpu().numpy()
+    tgts = targets.detach().cpu().numpy()
+
+    scores = []
+    for b in range(probs.shape[0]):
+        t = tgts[b].reshape(-1)
+        p = probs[b].reshape(-1)
+        if t.max() <= 0:
+            continue  # no positive signal in target, AP undefined
+        # binarize target for AP's definition of "positive" if it's a
+        # continuous heatmap; use >0 rather than >=0.5 so faint Gaussian
+        # tails still count as the positive region
+        scores.append(average_precision_score((t > 0).astype(int), p))
+    return float(np.mean(scores)) if scores else float("nan")
+
+
+def compute_centroid_distance(preds: torch.Tensor, targets: torch.Tensor,
+                               pixel_size_m: float = None) -> float:
+    """
+    Euclidean distance (in pixels, or metres if pixel_size_m given) between
+    the argmax location of the predicted heatmap and the argmax location
+    of the target heatmap, per sample.
+
+    This measures "how far off is the fire location",
+    which IoU at a fixed threshold does not cleanly capture.
+
+    Returns:
+        Mean distance over samples where the target has a positive peak.
+        Samples with an all-zero target are skipped (no true location to
+        compare against).
+    """
+    probs = torch.sigmoid(preds)  # (B, 1, H, W)
+    B = probs.shape[0]
+    dists = []
+    for b in range(B):
+        t = targets[b, 0]
+        if t.max() <= 0:
+            continue
+        p = probs[b, 0]
+        t_idx = torch.argmax(t)
+        p_idx = torch.argmax(p)
+        H, W = t.shape
+        ty, tx = t_idx // W, t_idx % W
+        py, px = p_idx // W, p_idx % W
+        d = torch.sqrt(((ty - py).float()) ** 2 + ((tx - px).float()) ** 2).item()
+        if pixel_size_m is not None:
+            d *= pixel_size_m
+        dists.append(d)
+    return float(np.mean(dists)) if dists else float("nan")
+
+
 def compute_all_metrics(preds: torch.Tensor, targets: torch.Tensor,
-                        threshold: float = 0.5) -> dict:
+                        threshold: float = 0.5, pixel_size_m: float = None) -> dict:
     """
     Convenience wrapper computing every metric at once for a single batch.
-    Used by evaluate.py to produce the final per-sample / aggregate
-    test-set report.
+
+    Args:
+        pixel_size_m: native pixel resolution of the target being evaluated
+                      (e.g. 384.0 for VIIRS Stage-1, 30.0 for Landsat Stage-2).
+                      Passed through to compute_centroid_distance so reported
+                      distances are in metres; leave as None to get distance
+                      in pixels instead (not comparable across branches).
     """
     pr = compute_precision_recall(preds, targets, threshold)
     return {
-        "iou":          compute_iou(preds, targets, threshold),
-        "ipsnr":        compute_ipsnr(preds, targets, threshold),
-        "boundary_f1":  compute_boundary_f1(preds, targets, threshold),
-        "precision":    pr["precision"],
-        "recall":       pr["recall"],
-        "pixel_f1":     pr["f1"],
+        "iou":                  compute_iou(preds, targets, threshold),
+        "ipsnr":                compute_ipsnr(preds, targets, threshold),
+        "boundary_f1":          compute_boundary_f1(preds, targets, threshold),
+        "precision":            pr["precision"],
+        "recall":               pr["recall"],
+        "pixel_f1":             pr["f1"],
+        "auprc":                compute_auprc(preds, targets),
+        "centroid_dist":        compute_centroid_distance(preds, targets, pixel_size_m=pixel_size_m),
     }
