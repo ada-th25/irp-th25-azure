@@ -22,7 +22,7 @@ from google.auth import default
 # Local modules
 sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
-from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall
+from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall, compute_auprc, compute_centroid_distance
 from losses import build_loss
 import importlib
 
@@ -34,7 +34,7 @@ MODEL_REGISTRY = {
 # Loss types that expect a continuous [0,1] Gaussian heatmap target rather
 # than a binary {0,1} mask. Used to auto-derive heatmap_target from loss.type
 # and to sanity-check explicit overrides.
-GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss"}
+GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussian"}
 
 # Metrics where higher is better vs lower is better, used to generalise the
 # "is_best" checkpoint comparison beyond a hardcoded val_iou.
@@ -42,8 +42,8 @@ HIGHER_IS_BETTER = {
     "val_iou": True, "val_iou_t03": True, "val_ipsnr": True,
     "val_boundary_f1": True, "val_precision": True, "val_recall": True,
     "val_pixel_f1": True, "val_loss": False,
+    "val_auprc": True, "val_centroid_dist_m": False,
 }
-
 
 # ------------------------------------------------------------------
 # GCS Checkpoint Helpers
@@ -78,6 +78,7 @@ class CSVLogger:
         "epoch", "train_loss", "lr",
         "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
         "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
+        "val_auprc", "val_centroid_dist_m",
     ]
  
     def __init__(self, path: str, columns: list = None, resume: bool = False):
@@ -164,6 +165,7 @@ def validate(
     threshold: float = 0.5,
     low_threshold: float = 0.3,
     compute_ipsnr_flag: bool = True,
+    pixel_size_m: float = 384.0,
 ) -> dict:
     """
     Args:
@@ -187,6 +189,9 @@ def validate(
     total_precision = 0.0
     total_recall = 0.0
     total_pixel_f1 = 0.0
+    total_auprc = 0.0
+    total_centroid = 0.0
+    n_centroid = 0
     n_ipsnr = 0       # ipsnr is skipped when no fire pixels exist
     n_batches = len(loader)
  
@@ -215,6 +220,13 @@ def validate(
         total_precision += pr["precision"]
         total_recall += pr["recall"]
         total_pixel_f1 += pr["f1"]
+
+        total_auprc += compute_auprc(logits, target)
+
+        cdist = compute_centroid_distance(logits, target, pixel_size_m=pixel_size_m)
+        if not np.isnan(cdist):
+            total_centroid += cdist
+            n_centroid += 1
  
         if compute_ipsnr_flag:
             ipsnr = compute_ipsnr(logits, target, threshold=threshold)
@@ -231,6 +243,8 @@ def validate(
         "val_precision": total_precision / n_batches,
         "val_recall": total_recall / n_batches,
         "val_pixel_f1": total_pixel_f1 / n_batches,
+        "val_auprc": total_auprc / n_batches,
+        "val_centroid_dist_m": (total_centroid / max(n_centroid, 1)),
     }
 
 # ------------------------------------------------------------------
@@ -403,6 +417,7 @@ def main():
     eval_threshold = float(eval_cfg.get("threshold", 0.5))
     eval_low_threshold = float(eval_cfg.get("low_threshold", 0.3))
     eval_compute_ipsnr = bool(eval_cfg.get("compute_ipsnr", True))
+    eval_pixel_size_m = float(eval_cfg.get("pixel_size_m", 384.0))
 
     # Which logged metric decides "best.pt", and whether higher or lower is better.
     best_metric = cfg.get("checkpointing", {}).get("best_metric", "val_iou")
@@ -492,6 +507,7 @@ def main():
                 threshold=eval_threshold,
                 low_threshold=eval_low_threshold,
                 compute_ipsnr_flag=eval_compute_ipsnr,
+                pixel_size_m=eval_pixel_size_m,
             )
             log_row.update(val_metrics)
  
@@ -522,6 +538,8 @@ def main():
                 f"val_rec={val_metrics['val_recall']:.4f} | "
                 f"val_ipsnr={val_metrics['val_ipsnr']:.2f} dB | "
                 f"val_bf1={val_metrics['val_boundary_f1']:.4f} | "
+                f"val_auprc={val_metrics['val_auprc']:.4f} | "
+                f"val_centroid_dist_m={val_metrics['val_centroid_dist_m']:.4f} | "
                 f"lr={lr_now:.2e} | "
                 f"time={time.time()-t0:.0f}s",
                 flush=True,

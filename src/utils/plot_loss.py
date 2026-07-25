@@ -22,6 +22,7 @@ FULL_COLUMNS = [
     "epoch", "train_loss", "lr",
     "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
     "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
+    "val_auprc", "val_centroid_dist_m",
 ]
 
 
