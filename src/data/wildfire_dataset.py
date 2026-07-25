@@ -86,7 +86,8 @@ class WildfireDataset(Dataset):
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
              target_size=None, cov_size=None, goes_size=None, 
              dilate_target=False, heatmap_target=False,
-             goes_mean=None, goes_std=None, heatmap_sigma=1.0):
+             goes_mean=None, goes_std=None, heatmap_sigma=1.0,
+             manifest_workers=32):
 
         # Ensure mutual exclusion as requested
         if dilate_target and heatmap_target:
@@ -103,8 +104,7 @@ class WildfireDataset(Dataset):
         self._client_pid = None   # tracks which process created self._bucket
 
         # GOES per-channel standardization stats (computed via compute_goes_stats.py
-        # over the training split). Defaults preserve current behavior if the YAML
-        # doesn't override them.
+        # over the training split)
         default_goes_mean = [305.98227561473846, 296.6176749324799, 9.364600682258606]
         default_goes_std  = [12.870277949475222, 9.583713562045117, 7.1649856621255585]
         self.goes_mean = torch.tensor(goes_mean if goes_mean is not None else default_goes_mean).view(-1, 1, 1)
@@ -116,14 +116,8 @@ class WildfireDataset(Dataset):
         self.goes_size = tuple(goes_size) if goes_size is not None else defaults["goes_size"]
  
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
-        raw_samples = []
-        for blob in self.bucket.list_blobs(prefix=manifest_prefix):
-            if blob.name.endswith(".json"):
-                try:
-                    raw_samples.append(json.loads(blob.download_as_text()))
-                except Exception:
-                    pass
- 
+        raw_samples = self._load_manifests(manifest_prefix, split_ids, manifest_workers)
+
         if split_ids is not None:
             before = len(raw_samples)
             raw_samples = [m for m in raw_samples if m.get("id") in split_ids]
@@ -143,6 +137,54 @@ class WildfireDataset(Dataset):
  
         print(f"[WildfireDataset/{branch}] sizes: target={self.target_size}, "
               f"cov={self.cov_size}, goes={self.goes_size}")
+
+    # ------------------------------------------------------------------
+    # Manifest loading
+    # ------------------------------------------------------------------
+    def _download_manifest_json(self, blob):
+        try:
+            return json.loads(blob.download_as_text())
+        except Exception:
+            return None
+
+    def _load_manifests(self, manifest_prefix, split_ids, manifest_workers):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        candidate_blobs = []
+        used_direct_path = False
+
+        if split_ids is not None:
+            probe_blobs = [self.bucket.blob(f"{manifest_prefix}{sid}.json") for sid in split_ids]
+            with ThreadPoolExecutor(max_workers=manifest_workers) as ex:
+                exists_flags = list(ex.map(lambda b: b.exists(), probe_blobs))
+            found = [b for b, ok in zip(probe_blobs, exists_flags) if ok]
+            missing_count = len(probe_blobs) - len(found)
+
+            if missing_count == 0:
+                candidate_blobs = found
+                used_direct_path = True
+            elif len(found) > 0:
+                print(f"[WildfireDataset/{self.branch}] {missing_count} split IDs not found "
+                      f"via direct manifest path; falling back to full listing.")
+            else:
+                print(f"[WildfireDataset/{self.branch}] Direct manifest path found nothing; "
+                      f"falling back to full listing.")
+
+        if not used_direct_path:
+            candidate_blobs = [
+                blob for blob in self.bucket.list_blobs(prefix=manifest_prefix)
+                if blob.name.endswith(".json")
+            ]
+
+        raw_samples = []
+        with ThreadPoolExecutor(max_workers=manifest_workers) as ex:
+            futures = [ex.submit(self._download_manifest_json, b) for b in candidate_blobs]
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result is not None:
+                    raw_samples.append(result)
+
+        return raw_samples
 
     # ------------------------------------------------------------------
     # Fork-safe lazy GCS client
