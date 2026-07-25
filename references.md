@@ -278,3 +278,13 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Create autoencoder model (`src/models/autoencoder.py`) based on the model in the paper "Deep Learning Approach to Improve Spatial Resolution of GOES-17 Wildfire Boundaries Using VIIRS Satellite Data" by Badhan et al.
     * **Prompt:** (Uploaded the Badhan et al. paper) "Generate the autoencoder model based on this paper."
     * **Human Modification:** Accept covariates input, remove the two-branch structure.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 25/07/2026
+    * **Scope:** Fix `src/data/wildfire_dataset.py` to parallelise the downloads for faster execution via thread pooling. It also filters the data based on split_ids (if given) so it does not load everything first.
+    * **Prompt:** (pasting existing wildfire_dataset) "Parallelise the downloads for faster execution. Also filter the data based on split_ids (if given) so it does not load everything first."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 25/07/2026
+    * **Scope:** Add new metrics: Area Under the Precision-Recall Curve (AUPRC) that calculates precision and recall at different thresholds, and centroid distance that calculates Euclidean distance in m between the location of the predicted heatmap and the predicted heatmap.
+    * **Prompt:** "Generate a code that calculates the Area Under the Precision-Recall Curve (AUPRC) that calculates precision and recall at different thresholds, and centroid distance that calculates Euclidean distance in m between the location of the predicted heatmap and the predicted heatmap. This metrics will be calculated to assess the predicted heatmaps of an imbalanced fire dataset."
