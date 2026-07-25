@@ -47,19 +47,6 @@ def load_split_ids(bucket_name: str, branch: str,
     print(f"[load_split_ids] Loaded {len(ids)} IDs for {branch}/{split}")
     return ids
 
-# ------------------------------------------------------------------
-# Default sizes per branch, based on measured native resolutions:
-#
-#   landsat: target 256x256, covariates 256x256
-#            goes native 4x4
-#   viirs:   target  20x20 - NOT resized, model input
-#            (goes_up + covariates) stays at FULL native
-#            256x256 (30m) resolution. The model's 256x256 output
-#            is downsampled to the native 20x20 target grid before
-#            the loss/metrics compare them
-#            Stage 1 predicts at VIIRS resolution, using
-#            full-resolution inputs to get there.
-# ------------------------------------------------------------------
 DEFAULT_SIZES = {
     "landsat": {"target_size": (256, 256), "cov_size": (256, 256), "goes_size": (4, 4)},
     "viirs":   {"target_size": (20, 20),   "cov_size": (256, 256), "goes_size": (4, 4)},

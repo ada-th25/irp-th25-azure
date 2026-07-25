@@ -31,6 +31,19 @@ MODEL_REGISTRY = {
     "autoencoder": "models.autoencoder",
 }
 
+# Loss types that expect a continuous [0,1] Gaussian heatmap target rather
+# than a binary {0,1} mask. Used to auto-derive heatmap_target from loss.type
+# and to sanity-check explicit overrides.
+GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss"}
+
+# Metrics where higher is better vs lower is better, used to generalise the
+# "is_best" checkpoint comparison beyond a hardcoded val_iou.
+HIGHER_IS_BETTER = {
+    "val_iou": True, "val_iou_t03": True, "val_ipsnr": True,
+    "val_boundary_f1": True, "val_precision": True, "val_recall": True,
+    "val_pixel_f1": True, "val_loss": False,
+}
+
 
 # ------------------------------------------------------------------
 # GCS Checkpoint Helpers
@@ -148,7 +161,23 @@ def validate(
     loader:    DataLoader,
     criterion: nn.Module,
     device:    torch.device,
+    threshold: float = 0.5,
+    low_threshold: float = 0.3,
+    compute_ipsnr_flag: bool = True,
 ) -> dict:
+    """
+    Args:
+        threshold:           probability threshold used for val_iou, val_boundary_f1,
+                              val_precision/recall/pixel_f1.
+        low_threshold:        secondary, looser threshold used for val_iou_t03 —
+                              useful for Gaussian-heatmap targets where the core
+                              peak region undercounts a 0.5 threshold.
+        compute_ipsnr_flag:   if False, skips ipsnr entirely (returns 0.0). ipsnr is
+                              the one metric that scores raw probabilities rather
+                              than a thresholded mask, so it's most meaningful for
+                              Stage-1 (heatmap) runs and can be skipped elsewhere
+                              to save time.
+    """
     model.eval()
     total_loss = 0.0
     total_iou = 0.0
@@ -178,25 +207,26 @@ def validate(
         # Thresholding at 0.5 retains the core region of the true peak for evaluation
         #binary_target = (target >= 0.5).float()
         
-        total_iou += compute_iou(logits, target) # default threshold=0.5
-        total_iou_lowthresh += compute_iou(logits, target, threshold=0.3)
-        total_bf1 += compute_boundary_f1(logits, target)
+        total_iou += compute_iou(logits, target, threshold=threshold)
+        total_iou_lowthresh += compute_iou(logits, target, threshold=low_threshold)
+        total_bf1 += compute_boundary_f1(logits, target, threshold=threshold)
  
-        pr = compute_precision_recall(logits, target) # default threshold=0.5
+        pr = compute_precision_recall(logits, target, threshold=threshold)
         total_precision += pr["precision"]
         total_recall += pr["recall"]
         total_pixel_f1 += pr["f1"]
  
-        ipsnr = compute_ipsnr(logits, target)
-        if ipsnr != float("inf"):
-            total_ipsnr += ipsnr
-            n_ipsnr += 1
+        if compute_ipsnr_flag:
+            ipsnr = compute_ipsnr(logits, target, threshold=threshold)
+            if ipsnr != float("inf"):
+                total_ipsnr += ipsnr
+                n_ipsnr += 1
  
     return {
         "val_loss": total_loss / n_batches,
         "val_iou": total_iou / n_batches,
         "val_iou_t03": total_iou_lowthresh / n_batches,
-        "val_ipsnr": total_ipsnr / max(n_ipsnr, 1),
+        "val_ipsnr": (total_ipsnr / max(n_ipsnr, 1)) if compute_ipsnr_flag else 0.0,
         "val_boundary_f1": total_bf1 / n_batches,
         "val_precision": total_precision / n_batches,
         "val_recall": total_recall / n_batches,
@@ -227,12 +257,28 @@ def main():
     branch = cfg["experiment"]["branch"]
     bucket_name = cfg["data"]["bucket_name"]
     prefix = cfg["data"]["output_prefix"]
+    loss_type = cfg["loss"]["type"].lower()
  
     print(f"\n{'='*60}")
     print(f"Experiment : {exp_name}")
     print(f"Branch     : {branch}")
     print(f"Config     : {args.config}")
     print(f"{'='*60}\n")
+ 
+    default_heatmap = loss_type in GAUSSIAN_LOSS_TYPES
+    heatmap_target = cfg["data"].get("heatmap_target", default_heatmap)
+    dilate_target = cfg["data"].get("dilate_target", False)
+
+    if heatmap_target and loss_type not in GAUSSIAN_LOSS_TYPES:
+        print(f"  [WARN] heatmap_target=True but loss.type='{loss_type}' expects a "
+              f"binary target, not a continuous Gaussian heatmap. Check your config "
+              f"unless this is intentional.")
+    if (not heatmap_target) and (loss_type in GAUSSIAN_LOSS_TYPES):
+        print(f"  [WARN] loss.type='{loss_type}' expects a continuous Gaussian heatmap "
+              f"target but heatmap_target=False -- it will be trained against a "
+              f"binary{'/dilated' if dilate_target else ''} target instead.")
+    print(f"  Target representation: "
+          f"{'heatmap' if heatmap_target else ('dilated' if dilate_target else 'binary')}")
  
     # ------------------------------------------------------------------
     # Device
@@ -285,22 +331,21 @@ def main():
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
-    # Initialise datasets to use Gaussian targets for VIIRS, keeping dilation completely off
     train_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=train_ids, 
-        dilate_target=False, heatmap_target=(branch == "viirs"),
+        dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
     )
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids, 
-        dilate_target=False, heatmap_target=(branch == "viirs"),
+        dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
     )
-     
+    
     train_loader = DataLoader(
         train_ds,
         batch_size = cfg["training"]["batch_size"],
@@ -352,6 +397,25 @@ def main():
     )
 
     # ------------------------------------------------------------------
+    # Evaluation config: thresholds + which metrics to bother computing.
+    # ------------------------------------------------------------------
+    eval_cfg = cfg.get("evaluation", {})
+    eval_threshold = float(eval_cfg.get("threshold", 0.5))
+    eval_low_threshold = float(eval_cfg.get("low_threshold", 0.3))
+    eval_compute_ipsnr = bool(eval_cfg.get("compute_ipsnr", True))
+
+    # Which logged metric decides "best.pt", and whether higher or lower is better.
+    best_metric = cfg.get("checkpointing", {}).get("best_metric", "val_iou")
+    if best_metric not in HIGHER_IS_BETTER:
+        raise ValueError(
+            f"Unknown checkpointing.best_metric '{best_metric}'. "
+            f"Choose from: {sorted(HIGHER_IS_BETTER)}."
+        )
+    best_is_higher = HIGHER_IS_BETTER[best_metric]
+    print(f"  Best-checkpoint metric: {best_metric} "
+          f"({'higher' if best_is_higher else 'lower'} is better)")
+
+    # ------------------------------------------------------------------
     # GCS client (for checkpoint upload)
     # ------------------------------------------------------------------
     credentials, _ = default()
@@ -362,7 +426,7 @@ def main():
     # Resume
     # ------------------------------------------------------------------
     start_epoch = 1
-    best_iou    = 0.0
+    best_score  = float("-inf") if best_is_higher else float("inf")
  
     if args.resume:
         print(f"\nResuming from {args.resume}...")
@@ -379,8 +443,9 @@ def main():
         optimiser.load_state_dict(ckpt["optimiser"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
-        best_iou = ckpt.get("best_iou", 0.0)
-        print(f"  Resumed at epoch {start_epoch}, best_iou={best_iou:.4f}")
+        # Backward-compatible with older checkpoints that only stored best_iou.
+        best_score = ckpt.get("best_score", ckpt.get("best_iou", best_score))
+        print(f"  Resumed at epoch {start_epoch}, best_{best_metric}={best_score:.4f}")
 
     # ------------------------------------------------------------------
     # Training Loop
@@ -422,30 +487,37 @@ def main():
         # ------------------------------------------------------------------
         if epoch % val_every == 0 or epoch == n_epochs:
             print(f"\n  [Epoch {epoch}] Running validation...", flush=True)
-            val_metrics = validate(model, val_loader, criterion, device)
+            val_metrics = validate(
+                model, val_loader, criterion, device,
+                threshold=eval_threshold,
+                low_threshold=eval_low_threshold,
+                compute_ipsnr_flag=eval_compute_ipsnr,
+            )
             log_row.update(val_metrics)
  
-            is_best = val_metrics["val_iou"] > best_iou
+            current_score = val_metrics[best_metric]
+            is_best = (current_score > best_score) if best_is_higher else (current_score < best_score)
             if is_best:
-                best_iou = val_metrics["val_iou"]
+                best_score = current_score
                 best_path = str(ckpt_dir / "best.pt")
                 torch.save({
-                    "epoch":     epoch,
-                    "model":     model.state_dict(),
-                    "optimiser": optimiser.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "best_iou":  best_iou,
-                    "config":    cfg,
+                    "epoch":      epoch,
+                    "model":      model.state_dict(),
+                    "optimiser":  optimiser.state_dict(),
+                    "scheduler":  scheduler.state_dict(),
+                    "best_score": best_score,
+                    "best_metric": best_metric,
+                    "config":     cfg,
                 }, best_path)
                 upload_checkpoint(gcs_bucket, best_path, gcs_ckpt_prefix)
-                print(f"  ★ New best val_iou={best_iou:.4f} — saved best.pt")
+                print(f"  ★ New best {best_metric}={best_score:.4f} — saved best.pt")
  
             print(
                 f"  [Epoch {epoch:3d}] "
                 f"train_loss={train_loss:.4f} | "
                 f"val_loss={val_metrics['val_loss']:.4f} | "
                 f"val_iou={val_metrics['val_iou']:.4f} | "
-                f"val_iou@0.3={val_metrics['val_iou_t03']:.4f} | "
+                f"val_iou@{eval_low_threshold}={val_metrics['val_iou_t03']:.4f} | "
                 f"val_prec={val_metrics['val_precision']:.4f} | "
                 f"val_rec={val_metrics['val_recall']:.4f} | "
                 f"val_ipsnr={val_metrics['val_ipsnr']:.2f} dB | "
@@ -478,17 +550,18 @@ def main():
         if epoch % save_every == 0 or epoch == n_epochs:
             ckpt_path = str(ckpt_dir / f"epoch_{epoch:03d}.pt")
             torch.save({
-                "epoch":     epoch,
-                "model":     model.state_dict(),
-                "optimiser": optimiser.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "best_iou":  best_iou,
-                "config":    cfg,
+                "epoch":      epoch,
+                "model":      model.state_dict(),
+                "optimiser":  optimiser.state_dict(),
+                "scheduler":  scheduler.state_dict(),
+                "best_score": best_score,
+                "best_metric": best_metric,
+                "config":     cfg,
             }, ckpt_path)
             upload_checkpoint(gcs_bucket, ckpt_path, gcs_ckpt_prefix)
             prune_old_checkpoints(gcs_bucket, gcs_ckpt_prefix, keep_last)
  
-    print(f"\nTraining complete. Best val_iou: {best_iou:.4f}")
+    print(f"\nTraining complete. Best {best_metric}: {best_score:.4f}")
     if use_wandb:
         import wandb
         wandb.finish()

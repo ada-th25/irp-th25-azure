@@ -330,28 +330,32 @@ class GaussianFocalLoss(nn.Module):
             logits  : (B, 1, H, W) raw model predictions.
             targets : (B, 1, H, W) continuous ground truth Gaussian heatmap [0.0, 1.0].
         """
-        # Convert logits to probabilities
         preds = torch.sigmoid(logits)
-        
-        # Clamp to avoid numerical instability under log
-        eps = 1e-12
+
+        eps = 1e-6
         preds = torch.clamp(preds, min=eps, max=1.0 - eps)
 
-        # Boolean masks isolate true peak coordinates vs penalty-reduced neighborhoods
         pos_mask = (targets == 1.0)
         neg_mask = (targets < 1.0)
 
-        # Loss formulas
         pos_loss = -torch.log(preds) * torch.pow(1.0 - preds, self.alpha) * pos_mask
         neg_loss = -torch.log(1.0 - preds) * torch.pow(preds, self.alpha) * torch.pow(1.0 - targets, self.beta) * neg_mask
 
-        loss = pos_loss + neg_loss
+        # DEBUG: pinpoint which term produces NaN/Inf first
+        if torch.isnan(pos_loss).any() or torch.isinf(pos_loss).any():
+            print(f"  [LOSS DEBUG] pos_loss has nan/inf. preds range: {preds.min().item()}-{preds.max().item()}")
+        if torch.isnan(neg_loss).any() or torch.isinf(neg_loss).any():
+            print(f"  [LOSS DEBUG] neg_loss has nan/inf. preds range: {preds.min().item()}-{preds.max().item()}, "
+                  f"targets range: {targets.min().item()}-{targets.max().item()}")
 
         if self.reduction == "mean":
-            # Normalise pos and neg terms independently by their own pixel counts
             n_pos = pos_mask.float().sum().clamp(min=1.0)
             n_neg = neg_mask.float().sum().clamp(min=1.0)
-            return pos_loss.sum() / n_pos + neg_loss.sum() / n_neg
+            result = pos_loss.sum() / n_pos + neg_loss.sum() / n_neg
+            if torch.isnan(result) or torch.isinf(result):
+                print(f"  [LOSS DEBUG] final result nan/inf. pos_loss.sum()={pos_loss.sum().item()}, "
+                      f"neg_loss.sum()={neg_loss.sum().item()}, n_pos={n_pos.item()}, n_neg={n_neg.item()}")
+            return result
         elif self.reduction == "sum":
             return (pos_loss + neg_loss).sum()
 
