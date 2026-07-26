@@ -15,7 +15,7 @@ def set_reflect_padding(model):
     return model
 
 def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
-               cov_refine_channels=32, cov_window_size=8):
+               cov_refine_channels=32, cov_window_size=8, prior_fire_fraction=0.0085, stage1_channels=0):
     """
     Factory function for the wildfire-adapted HAUNet.
  
@@ -30,13 +30,20 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
         cov_window_size: window size (pixels) for windowed spatial
             self-attention applied to covariate features at each pyramid
             scale. Cost scales with window_size^4, not full resolution^4.
+        prior_fire_fraction: measured positive-pixel fraction for this
+            branch's target (e.g. ~0.0085 for VIIRS, ~0.0016 for Landsat).
+            Used to initialise the output head's bias so the model starts
+            near the correct base rate instead of an arbitrary default.
+        stage1_channels: extra input channels for Stage 1's predicted
+            probability map, when use_stage1_pred is enabled on the cascaded
+            pipeline (0 = not used, direct/Stage-1-only branches).
  
     Returns:
         HAUNet instance configured for 256x256 -> 256x256 fire mask prediction.
     """
     model = HAUNet(
         goes_channels=goes_channels,
-        cov_channels=cov_channels,
+        cov_channels=cov_channels + stage1_channels,
         width=96,
         enc_blk_nums=[5, 5],
         dec_blk_nums=[5, 5],
@@ -44,6 +51,7 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
         downscale_factor=downscale_factor,
         cov_refine_channels=cov_refine_channels,
         cov_window_size=cov_window_size,
+        prior_fire_fraction=prior_fire_fraction,
     )
     return set_reflect_padding(model)
 
@@ -581,6 +589,7 @@ class HAUNet(nn.Module):
         downscale_factor = 4,
         cov_refine_channels = 32,
         cov_window_size = 8,
+        prior_fire_fraction = 0.0085,
     ):
         super().__init__()
 
@@ -674,8 +683,7 @@ class HAUNet(nn.Module):
             kernel_size=3, padding=1, stride=1, bias=True
         )
 
-        PRIOR_FIRE_FRACTION = 0.0085
-        prior_logit = math.log(PRIOR_FIRE_FRACTION / (1 - PRIOR_FIRE_FRACTION))
+        prior_logit = math.log(prior_fire_fraction / (1 - prior_fire_fraction))
         nn.init.constant_(self.output_head.bias, prior_logit)
  
     def forward(self, inp):

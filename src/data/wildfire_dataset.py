@@ -84,10 +84,11 @@ class WildfireDataset(Dataset):
     """
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
-             target_size=None, cov_size=None, goes_size=None, 
-             dilate_target=False, heatmap_target=False,
-             goes_mean=None, goes_std=None, heatmap_sigma=1.0,
-             manifest_workers=32):
+         target_size=None, cov_size=None, goes_size=None, 
+         dilate_target=False, heatmap_target=False,
+         goes_mean=None, goes_std=None, heatmap_sigma=1.0,
+         manifest_workers=32,
+         use_stage1_pred=False, stage1_pred_key="stage1_pred"):
 
         # Ensure mutual exclusion as requested
         if dilate_target and heatmap_target:
@@ -102,6 +103,8 @@ class WildfireDataset(Dataset):
         self.heatmap_sigma = heatmap_sigma
         self._bucket = None       # created per-process, see self.bucket property
         self._client_pid = None   # tracks which process created self._bucket
+        self.use_stage1_pred = use_stage1_pred
+        self.stage1_pred_key = stage1_pred_key   # key in manifest["paths"] pointing to the stage-1 raster
 
         # GOES per-channel standardization stats (computed via compute_goes_stats.py
         # over the training split)
@@ -242,6 +245,13 @@ class WildfireDataset(Dataset):
 
     def _filter_complete(self, raw_samples):
         valid = [m for m in raw_samples if m.get("is_valid") is True]
+        if self.use_stage1_pred:
+            before = len(valid)
+            valid = [m for m in valid if self.stage1_pred_key in m.get("paths", {})]
+            dropped_stage1 = before - len(valid)
+            if dropped_stage1 > 0:
+                print(f"[WildfireDataset/{self.branch}] Dropped {dropped_stage1} samples "
+                      f"missing '{self.stage1_pred_key}' path.")
         dropped = len(raw_samples) - len(valid)
         return valid, dropped
 
@@ -371,9 +381,20 @@ class WildfireDataset(Dataset):
             elif self.heatmap_target:
                 # Convert binary targets into standard continuous Gaussian targets
                 target = self.make_gaussian_heatmap_target(target, sigma=self.heatmap_sigma)
+
+        input_channels = [goes_up]
  
-        # Concatenate upsampled GOES with covariates into the model input
-        inp = torch.cat([goes_up, cov], dim=0)
+        if self.use_stage1_pred:
+            stage1_pred = self._read_gcs_raster(paths[self.stage1_pred_key])  # (1, 20, 20) VIIRS-res
+            if stage1_pred.shape[-2:] != self.cov_size:
+                stage1_pred = F.interpolate(
+                    stage1_pred.unsqueeze(0), size=self.cov_size,
+                    mode="bilinear", align_corners=False,
+                ).squeeze(0)
+            input_channels.append(stage1_pred)
+    
+        input_channels.append(cov)
+        inp = torch.cat(input_channels, dim=0)
  
         return {
             "input":      inp,       # (goes_ch + cov_ch, H, W) model input

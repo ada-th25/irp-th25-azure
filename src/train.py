@@ -34,7 +34,7 @@ MODEL_REGISTRY = {
 # Loss types that expect a continuous [0,1] Gaussian heatmap target rather
 # than a binary {0,1} mask. Used to auto-derive heatmap_target from loss.type
 # and to sanity-check explicit overrides.
-GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussian"}
+GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussian", "focal_dice_gaussian_spatial"}
 
 # Metrics where higher is better vs lower is better, used to generalise the
 # "is_best" checkpoint comparison beyond a hardcoded val_iou.
@@ -119,6 +119,9 @@ def train_one_epoch(
     model.train()
     total_loss = 0.0
     n_batches  = len(loader)
+
+    component_totals = {"fd": 0.0, "gf": 0.0, "spatial": 0.0}
+    has_components = hasattr(criterion, "forward_with_components")
  
     optimiser.zero_grad()   # zero once, before the accumulation loop starts
  
@@ -130,7 +133,28 @@ def train_one_epoch(
         
         if logits.shape[-2:] != target.shape[-2:]:
             logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
-        loss = criterion(logits, target)
+            
+        if hasattr(criterion, "forward_with_components"):
+            loss, components = criterion.forward_with_components(logits, target)
+            for k, v in components.items():
+                component_totals[k] += v
+        else:
+            loss = criterion(logits, target)
+            components = None
+
+        if torch.isnan(logits).any() or torch.isinf(logits).any():
+            print(f"    [WARNING] logits contain NaN/Inf at batch {batch_idx}")
+
+        if batch_idx == 0:
+            print(f"    [Epoch {epoch}] logit range: {logits.min().item():.4f} - {logits.max().item():.4f}, "
+                  f"logit std: {logits.std().item():.6f}")
+            print(f"    input stats: min={inp.min().item():.4f} max={inp.max().item():.4f} "
+                  f"mean={inp.mean().item():.4f} has_nan={torch.isnan(inp).any().item()}")
+            print(f"    target stats: min={target.min().item():.4f} max={target.max().item():.4f} "
+                  f"sum={target.sum().item():.1f} has_nan={torch.isnan(target).any().item()}")
+            
+            probs = torch.sigmoid(logits)
+            print(f"    [Epoch {epoch}] sample pred range: {probs.min().item():.4f} - {probs.max().item():.4f}", flush=True)
  
         # Scale the loss down by accum_steps so that summing gradients
         # over accum_steps batches
@@ -141,8 +165,11 @@ def train_one_epoch(
         # partial group of batches still gets applied instead
         is_accum_boundary = ((batch_idx + 1) % accum_steps == 0) or ((batch_idx + 1) == n_batches)
         if is_accum_boundary:
+            clip_val = grad_clip if grad_clip > 0 else float("inf")
+    
             if grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+                
             optimiser.step()
             optimiser.zero_grad()
  
@@ -152,6 +179,12 @@ def train_one_epoch(
         if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == n_batches:
             print(f"  Epoch {epoch:3d} | batch {batch_idx+1:4d}/{n_batches} "
                   f"| loss {loss.item():.4f}", flush=True)
+            
+    if has_components:
+        avg_components = {k: v / n_batches for k, v in component_totals.items()}
+        print(f"  Epoch {epoch:3d} | component losses: "
+              f"fd={avg_components['fd']:.4f} gf={avg_components['gf']:.4f} "
+              f"spatial={avg_components['spatial']:.4f}", flush=True)
  
     return total_loss / n_batches
 
@@ -345,19 +378,23 @@ def main():
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
+    use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
+
     train_ds = WildfireDataset(
-        bucket_name, prefix, branch, split_ids=train_ids, 
+        bucket_name, prefix, branch, split_ids=train_ids,
         dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
+        use_stage1_pred=use_stage1_pred,
     )
     val_ds = WildfireDataset(
-        bucket_name, prefix, branch, split_ids=val_ids, 
+        bucket_name, prefix, branch, split_ids=val_ids,
         dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
+        use_stage1_pred=use_stage1_pred,
     )
     
     train_loader = DataLoader(
@@ -387,6 +424,8 @@ def main():
     model = make_model(
         goes_channels = cfg["data"]["goes_channels"],
         cov_channels = cfg["data"]["cov_channels"],
+        stage1_channels = cfg["data"].get("stage1_channels", 0),
+        prior_fire_fraction = cfg["model"].get("prior_fire_fraction", 0.0085),
     ).to(device)
     
     n_params = sum(p.numel() for p in model.parameters())
