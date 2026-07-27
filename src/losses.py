@@ -23,14 +23,18 @@ class FocalLoss(nn.Module):
                         gamma=2 is the standard recommendation; increase to
                         3-4 if the model still ignores fire pixels.
         reduction (str): 'mean' | 'sum' | 'none'
+        balanced: if True, normalises positive and negative pixel
+                losses separately by their own pixel counts before summing
+                rather than a single global mean over all pixels.
     """
 
     def __init__(self, alpha: float = 0.25, gamma: float = 2.0,
-                 reduction: str = "mean"):
+                 reduction: str = "mean", balanced: bool = False):
         super().__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
+        self.balanced = balanced
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
@@ -53,6 +57,13 @@ class FocalLoss(nn.Module):
 
         focal_weight = alpha_t * (1.0 - p_t) ** self.gamma
         loss = focal_weight * bce
+
+        if self.balanced:
+            pos_mask = (targets > 0).float()
+            neg_mask = (targets == 0).float()
+            n_pos = pos_mask.sum().clamp(min=1.0)
+            n_neg = neg_mask.sum().clamp(min=1.0)
+            return (loss * pos_mask).sum() / n_pos + (loss * neg_mask).sum() / n_neg
 
         if self.reduction == "mean":
             return loss.mean()
@@ -209,9 +220,10 @@ class FocalDiceLoss(nn.Module):
         focal_weight: float = 1.0,
         dice_weight: float = 1.0,
         smooth: float = 0.1,
+        balanced: bool = False,
     ):
         super().__init__()
-        self.focal = FocalLoss(alpha=alpha, gamma=gamma, reduction="mean")
+        self.focal = FocalLoss(alpha=alpha, gamma=gamma, reduction="mean", balanced=balanced)
         self.dice  = DiceLoss(smooth=smooth, reduction="mean")
         self.focal_weight = focal_weight
         self.dice_weight  = dice_weight
@@ -272,9 +284,10 @@ class FocalTverskyLoss(nn.Module):
         focal_weight: float = 1.0,
         tversky_weight: float = 1.0,
         smooth: float = 1.0,
+        balanced: bool = False,
     ):
         super().__init__()
-        self.focal = FocalLoss(alpha=alpha, gamma=gamma, reduction="mean")
+        self.focal = FocalLoss(alpha=alpha, gamma=gamma, reduction="mean", balanced=balanced)
         self.tversky = TverskyLoss(
             alpha=tversky_alpha, beta=tversky_beta,
             smooth=smooth, reduction="mean",
@@ -399,7 +412,6 @@ class FocalDiceGaussianLoss(nn.Module):
     def extra_repr(self) -> str:
         return f"fd_weight={self.fd_weight}, gf_weight={self.gf_weight}"
 
-
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
@@ -444,6 +456,7 @@ def build_loss(cfg: dict) -> nn.Module:
             focal_weight=cfg.get("focal_weight", 1.0),
             dice_weight=cfg.get("dice_weight", 1.0),
             smooth=cfg.get("smooth", 0.1),
+            balanced=cfg.get("balanced", False),
         )
     elif loss_type == "focal_tversky":
         return FocalTverskyLoss(
@@ -454,6 +467,7 @@ def build_loss(cfg: dict) -> nn.Module:
             focal_weight=cfg.get("focal_weight", 1.0),
             tversky_weight=cfg.get("tversky_weight", 1.0),
             smooth=cfg.get("smooth", 1.0),
+            balanced=cfg.get("balanced", False),
         )
     elif loss_type in ("gaussian_focal", "gaussianfocalloss"):
         return GaussianFocalLoss(

@@ -24,6 +24,7 @@ sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
 from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall, compute_auprc, compute_centroid_distance
 from losses import build_loss
+from utils.postprocess import postprocess_prediction
 import importlib
 
 MODEL_REGISTRY = {
@@ -100,6 +101,8 @@ class CSVLogger:
         "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
         "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
         "val_auprc", "val_centroid_dist_m",
+        "pp_iou", "pp_boundary_f1", "pp_precision", "pp_recall",
+        "pp_pixel_f1", "pp_centroid_dist_m",
     ]
  
     def __init__(self, path: str, columns: list = None, resume: bool = False):
@@ -299,6 +302,61 @@ def validate(
         "val_pixel_f1": total_pixel_f1 / n_batches,
         "val_auprc": total_auprc / n_batches,
         "val_centroid_dist_m": (total_centroid / max(n_centroid, 1)),
+    }
+
+@torch.no_grad()
+def compute_postprocessed_metrics(
+    model, loader, device, pixel_size_m, postprocess_cfg,
+) -> dict:
+    """
+    Same metrics as validate(), computed on the post-processed binary
+    mask instead of raw sigmoid output. Kept as a separate pass -- never
+    used for checkpoint selection (see main(): best_metric is always
+    computed from raw validate() output).
+    """
+    model.eval()
+    total_iou, total_bf1, total_precision, total_recall, total_pixel_f1 = 0, 0, 0, 0, 0
+    total_centroid, n_centroid = 0.0, 0
+    n_batches = len(loader)
+
+    method = postprocess_cfg.get("method", "percentile")
+    percentile = postprocess_cfg.get("percentile", 99.5)
+    fixed_threshold = postprocess_cfg.get("fixed_threshold", 0.5)
+    min_component_size = postprocess_cfg.get("min_component_size", 4)
+
+    for batch in loader:
+        inp = batch["input"].to(device)
+        target = batch["target"].to(device)
+        logits = model(inp)
+        if logits.shape[-2:] != target.shape[-2:]:
+            logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
+        probs = torch.sigmoid(logits)
+
+        mask = postprocess_prediction(
+            probs, method=method, percentile=percentile,
+            fixed_threshold=fixed_threshold, min_component_size=min_component_size,
+        )
+        # feed mask as pseudo-logits (already 0/1) at threshold=0.5
+        pseudo_logits = (mask * 20.0) - 10.0  # sigmoid(±10) ≈ 0/1, avoids logit(0)/(1) inf
+
+        total_iou += compute_iou(pseudo_logits, target, threshold=0.5)
+        total_bf1 += compute_boundary_f1(pseudo_logits, target, threshold=0.5)
+        pr = compute_precision_recall(pseudo_logits, target, threshold=0.5)
+        total_precision += pr["precision"]
+        total_recall += pr["recall"]
+        total_pixel_f1 += pr["f1"]
+        cdist = compute_centroid_distance(pseudo_logits, target, pixel_size_m=pixel_size_m)
+        if not np.isnan(cdist):
+            total_centroid += cdist
+            n_centroid += 1
+
+    return {
+        "pp_iou": total_iou / n_batches,
+        "pp_boundary_f1": total_bf1 / n_batches,
+        "pp_precision": total_precision / n_batches,
+        "pp_recall": total_recall / n_batches,
+        "pp_pixel_f1": total_pixel_f1 / n_batches,
+        "pp_centroid_dist_m": (total_centroid / max(n_centroid, 1)),
     }
 
 # ------------------------------------------------------------------
@@ -501,6 +559,9 @@ def main():
     eval_compute_ipsnr = bool(eval_cfg.get("compute_ipsnr", True))
     eval_pixel_size_m = float(eval_cfg.get("pixel_size_m", 384.0))
 
+    log_postprocessed = bool(eval_cfg.get("log_postprocessed", False))
+    postprocess_cfg = cfg.get("postprocess", {})
+
     # Which logged metric decides "best.pt", and whether higher or lower is better.
     best_metric = cfg.get("checkpointing", {}).get("best_metric", "val_iou")
     if best_metric not in HIGHER_IS_BETTER:
@@ -586,6 +647,16 @@ def main():
                 pixel_size_m=eval_pixel_size_m,
             )
             log_row.update(val_metrics)
+
+            if log_postprocessed:
+                pp_metrics = compute_postprocessed_metrics(
+                    model, val_loader, device, eval_pixel_size_m, postprocess_cfg,
+                )
+                log_row.update(pp_metrics)
+                print(f"  [Epoch {epoch:3d}] post-processed: "
+                      f"pp_iou={pp_metrics['pp_iou']:.4f} pp_bf1={pp_metrics['pp_boundary_f1']:.4f} "
+                      f"pp_prec={pp_metrics['pp_precision']:.4f} pp_rec={pp_metrics['pp_recall']:.4f}",
+                      flush=True)
  
             current_score = val_metrics[best_metric]
             is_best = (current_score > best_score) if best_is_higher else (current_score < best_score)
