@@ -1,0 +1,65 @@
+# experiments/e1_haunet_direct_test.YAML
+# ===================================
+
+experiment:
+  name: e1_haunet_direct_test_focal_tversky
+  branch: landsat
+
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits
+  heatmap_sigma: 0.6
+  goes_mean: [303.8532481265068, 294.1638224601746, 9.689425666332244]
+  goes_std: [8.395512216418565, 9.331768472724406, 7.138469832175077]
+  heatmap_target: false
+  dilate_target: true
+  goes_channels: 3
+  cov_channels: 2
+  num_workers: 2
+  use_stage1_pred: false
+  stage1_channels: 0
+
+model:
+  name: haunet
+  prior_fire_fraction: 0.001589   # measured Landsat positive-pixel fraction
+
+training:
+  batch_size: 2
+  grad_accum_steps: 4
+  epochs: 20
+  learning_rate: 3e-5
+  min_lr: 1.0e-6
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  val_every_n_epochs: 1
+  save_every_n_epochs: 3
+  use_weighted_sampler: true
+
+evaluation:
+  threshold: 0.5
+  low_threshold: 0.3
+  compute_ipsnr: true
+  pixel_size_m: 30.0         # Landsat
+
+checkpointing:
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_test_focal_tversky
+  keep_last_n: 1
+  best_metric: val_auprc
+
+logging:
+  log_dir: logs
+  use_wandb: false
+
+loss:
+  type: focal_tversky
+  alpha: 0.5
+  gamma: 1.0
+  tversky_alpha: 0.5
+ 
+  tversky_beta: 0.5
+  focal_weight: 1.0
+  tversky_weight: 1.0
+  smooth: 1.0
+  balanced: true

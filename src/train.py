@@ -46,6 +46,27 @@ HIGHER_IS_BETTER = {
 }
 
 # ------------------------------------------------------------------
+# Active Pixel Counter (for WeightedRandomSampler)
+# ------------------------------------------------------------------
+def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output_prefix: str) -> dict:
+    """
+    Read n_active_pixels (or n_detections) directly from manifest JSONs,
+    keyed by sample id. Avoids loading full raster data just to get a
+    pixel count.
+    """
+    counts = {}
+    prefix = f"{output_prefix}/{branch}_pairs/manifest/"
+    split_id_set = set(split_ids)
+    for blob in bucket.list_blobs(prefix=prefix):
+        if not blob.name.endswith(".json"):
+            continue
+        m = json.loads(blob.download_as_text())
+        sid = m.get("id")
+        if sid in split_id_set:
+            counts[sid] = m.get("n_active_pixels") or m.get("n_detections") or 1
+    return counts
+
+# ------------------------------------------------------------------
 # GCS Checkpoint Helpers
 # ------------------------------------------------------------------
 
@@ -343,6 +364,13 @@ def main():
     log_dir = Path(cfg["logging"]["log_dir"])
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True,  exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # GCS client (for checkpoint upload)
+    # ------------------------------------------------------------------
+    credentials, _ = default()
+    gcs_bucket = storage.Client(credentials=credentials).bucket(bucket_name)
+    gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
  
     # ------------------------------------------------------------------
     # Weights & Biases (W&B) logging
@@ -373,6 +401,20 @@ def main():
     print(f"\nLoading data splits from GCS (splits_dir='{splits_dir}')...")
     train_ids = load_split_ids(bucket_name, branch, "train", prefix, splits_dir)
     val_ids = load_split_ids(bucket_name, branch, "val",   prefix, splits_dir)
+
+    # ------------------------------------------------------------------
+    # Weighted sampler (optional, config-driven)
+    # ------------------------------------------------------------------
+    use_weighted_sampler = cfg["training"].get("use_weighted_sampler", False)
+    train_sampler = None
+    if use_weighted_sampler:
+        print("\nBuilding weighted sampler from manifest positive-pixel counts...")
+        pos_counts = load_positive_pixel_counts(gcs_bucket, branch, train_ids, prefix)
+        weights = [max(pos_counts.get(sid, 1), 1) for sid in train_ids]
+        train_sampler = torch.utils.data.WeightedRandomSampler(
+            weights, num_samples=len(train_ids), replacement=True
+        )
+        print(f"  Weighted sampler built ({len(weights)} samples).")
  
     # ------------------------------------------------------------------
     # Datasets and Loaders
@@ -400,7 +442,8 @@ def main():
     train_loader = DataLoader(
         train_ds,
         batch_size = cfg["training"]["batch_size"],
-        shuffle = True,
+        shuffle = (train_sampler is None),   # sampler and shuffle are mutually exclusive
+        sampler = train_sampler,
         num_workers = cfg["data"]["num_workers"],
         pin_memory = (device.type == "cuda"),
     )
@@ -469,12 +512,6 @@ def main():
     print(f"  Best-checkpoint metric: {best_metric} "
           f"({'higher' if best_is_higher else 'lower'} is better)")
 
-    # ------------------------------------------------------------------
-    # GCS client (for checkpoint upload)
-    # ------------------------------------------------------------------
-    credentials, _ = default()
-    gcs_bucket = storage.Client(credentials=credentials).bucket(bucket_name)
-    gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
 
     # ------------------------------------------------------------------
     # Resume
