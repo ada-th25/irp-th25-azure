@@ -734,9 +734,10 @@ def run_viirs_branch(region_bbox, max_clusters=10, dispatch_workers=EE_DISPATCH_
         target_path = f"{OUTPUT_PREFIX}/viirs_pairs/targets/VIIRS_{cluster_id}.tif"
         goes_path = f"{OUTPUT_PREFIX}/viirs_pairs/goes_input/GOES_{cluster_id}.tif"
         manifest_path = f"{OUTPUT_PREFIX}/viirs_pairs/manifest/{cluster_id}.json"
+        cov_path = f"{OUTPUT_PREFIX}/viirs_pairs/covariates/COV_{cluster_id}.tif"
         
         # Verify strict structural pair completeness via the global cache set
-        if (target_path in existing_blobs) and (goes_path in existing_blobs) and (manifest_path in existing_blobs):
+        if (target_path in existing_blobs) and (goes_path in existing_blobs) and (manifest_path in existing_blobs) and (cov_path in existing_blobs):
             completed_count += 1
             continue  # Skip fully complete clusters
             
@@ -1032,7 +1033,7 @@ if __name__ == "__main__":
 
     MAX_SUB_ARCHIVES = 10_000
     MAX_TIFFS_PER_SUB = 10_000
-    MAX_VIIRS_CLUSTERS = 10_000
+    MAX_VIIRS_CLUSTERS = 20_000
 
     mode = sys.argv[1] if len(sys.argv) > 1 else "test_all"
 
