@@ -3,15 +3,21 @@ Plot GOES bands, covariates, true target, and predicted fire probability
 for a handful of validation samples, side by side.
 
 Usage:
-    python -m src.utils.plot_predictions --config experiments/e2_haunet_cascaded_stage1_test.YAML \
+    # Basic prediction plot
+    python -m src.utils.plot_predictions \
+        --config experiments/e2_haunet_cascaded_stage1_test.yaml \
         --checkpoint checkpoints_test/e2_haunet_viirs_cascaded_stage1_test/epoch_010.pt \
-        --n-samples 4 --out predictions.png
+        --n-samples 4 \
+        --out predictions.png
 
-For a quick look at *why* this is slow, timing is printed to stdout for each
-stage (config/split loading, dataset construction, batch fetch, model +
-checkpoint load, inference). Compare --num-workers 0 vs a higher value --
-for a single batch, worker process spawn/import overhead often costs more
-than it saves, especially if __getitem__ does its own remote (GCS) reads.
+    # With post-processing overlay and seed
+    python -m src.utils.plot_predictions \
+        --config experiments/e2_haunet_cascaded_stage1_test.yaml \
+        --checkpoint checkpoints_test/e2_haunet_viirs_cascaded_stage1_test/epoch_010.pt \
+        --show-postprocessed \
+        --pp-method percentile \
+        --pp-percentile 99.5 \
+        --seed 42
 """
 
 import argparse
@@ -33,6 +39,7 @@ from torch.utils.data import DataLoader
 sys.path.append(str(Path(__file__).parent))
 from src.data.wildfire_dataset import WildfireDataset, load_split_ids
 from src.models.haunet import make_model
+from postprocess import postprocess_prediction
 
 
 @contextmanager
@@ -55,6 +62,13 @@ def parse_args():
                          "it even starts fetching data.")
     p.add_argument("--seed", type=int, default=None,
                     help="Optional seed for reproducible sample selection.")
+    p.add_argument("--show-postprocessed", action="store_true",
+                    help="Add columns showing the post-processed binary mask "
+                         "alongside raw prediction.")
+    p.add_argument("--pp-method", default="percentile", choices=["percentile", "fixed"])
+    p.add_argument("--pp-percentile", type=float, default=99.5)
+    p.add_argument("--pp-fixed-threshold", type=float, default=0.5)
+    p.add_argument("--pp-min-component-size", type=int, default=4)
     return p.parse_args()
 
 
@@ -139,21 +153,29 @@ def main():
                 logits = F.adaptive_avg_pool2d(logits, target.shape[-2:])
             probs = torch.sigmoid(logits)
 
-    # Columns: GOES C07, GOES C14, GOES TFI, DEM, land cover, true target, predicted prob
-    n_cols = 7
+            if args.show_postprocessed:
+                pp_mask = postprocess_prediction(
+                    probs, method=args.pp_method, percentile=args.pp_percentile,
+                    fixed_threshold=args.pp_fixed_threshold,
+                    min_component_size=args.pp_min_component_size,
+                )
+
+    n_cols = 8 if args.show_postprocessed else 7
+    col_titles = ["GOES C07", "GOES C14", "GOES TFI", "DEM (cov[0])",
+                  "Land cover (cov[1])", "True target", "Predicted P(fire)"]
+    if args.show_postprocessed:
+        col_titles.append("Post-processed mask")
+
     with timed("plot + save figure"):
         fig, axes = plt.subplots(n, n_cols, figsize=(3 * n_cols, 3 * n))
         if n == 1:
             axes = axes[np.newaxis, :]
 
-        col_titles = ["GOES C07", "GOES C14", "GOES TFI", "DEM (cov[0])",
-                      "Land cover (cov[1])", "True target", "Predicted P(fire)"]
-
         for row in range(n):
-            goes_np = goes[row].numpy()      # (3, gH, gW)
-            cov_np = cov[row].numpy()        # (2, cH, cW)
-            target_np = target[row, 0].cpu().numpy()   # (H, W)
-            prob_np = probs[row, 0].cpu().numpy()      # (H, W)
+            goes_np = goes[row].numpy()
+            cov_np = cov[row].numpy()
+            target_np = target[row, 0].cpu().numpy()
+            prob_np = probs[row, 0].cpu().numpy()
 
             panels = [
                 goes_np[0], goes_np[1], goes_np[2],
@@ -164,8 +186,13 @@ def main():
             vmins_vmaxs = [
                 (None, None), (None, None), (None, None),
                 (None, None), (None, None),
-                (0, 1), (None, None),   # True target stays fixed, prediction auto-scales
+                (0, 1), (None, None),
             ]
+
+            if args.show_postprocessed:
+                panels.append(pp_mask[row, 0].cpu().numpy())
+                cmaps.append("gray")
+                vmins_vmaxs.append((0, 1))
 
             for col in range(n_cols):
                 ax = axes[row, col]
