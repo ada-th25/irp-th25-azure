@@ -1,13 +1,6 @@
 import torch
 import torch.nn as nn
 
-def make_model(goes_channels: int, cov_channels: int, stage1_channels: int = 0,
-                prior_fire_fraction: float = 0.0085, **kwargs) -> WildfireAutoencoder:
-    return WildfireAutoencoder(
-        in_channels=goes_channels + cov_channels + stage1_channels,
-        prior_fire_fraction=prior_fire_fraction,
-    )
-
 class WildfireAutoencoder(nn.Module):
     """
     Autoencoder aligned with the Badhan et al. paper design,
@@ -78,5 +71,9 @@ class WildfireAutoencoder(nn.Module):
         return out #self.activation(out)
 
 
-def make_model(goes_channels: int, cov_channels: int) -> WildfireAutoencoder:
-    return WildfireAutoencoder(in_channels=goes_channels + cov_channels)
+def make_model(goes_channels: int, cov_channels: int, stage1_channels: int = 0,
+                prior_fire_fraction: float = 0.0085, **kwargs) -> WildfireAutoencoder:
+    return WildfireAutoencoder(
+        in_channels=goes_channels + cov_channels + stage1_channels,
+        prior_fire_fraction=prior_fire_fraction,
+    )
