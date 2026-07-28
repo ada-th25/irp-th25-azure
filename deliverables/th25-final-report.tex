@@ -219,10 +219,28 @@ The main encoder-decoder path produces low-resolution feature representations ($
 
 \subsection{Evaluation Metrics}
 \begin{itemize}
-    \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks.
+    \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks:
+    \begin{equation}\label{eq:iou}
+        \text{IoU} = \frac{\sum_{i,j} \tilde{Y}_{i,j} Y_{i,j}}{\sum_{i,j} \left( \tilde{Y}_{i,j} + Y_{i,j} - \tilde{Y}_{i,j} Y_{i,j} \right) + \epsilon}
+    \end{equation}
     \item \textbf{Precision and Recall:} Reported alongside IoU to capture asymmetric errors in fire detection.
-    \item \textbf{Boundary F1:} Evaluates the precision of the recovered fire-front geometry.
-    \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} Measures the performance of the model across different thresholds.
+    \begin{equation}\label{eq:precision_recall}
+        \text{Precision} = \frac{TP}{TP + FP + \epsilon}, \quad \text{Recall} = \frac{TP}{TP + FN + \epsilon}
+    \end{equation}
+    Where $TP$, $FP$, and $FN$ represent true positive, false positive, and false negative counts across the spatial grid, and $\epsilon = 10^{-8}$ prevents division by zero.
+    \item \textbf{Boundary F1:} Evaluates the accuracy of predicted fire boundaries, computed over boundary pixels extracted from predicted and ground truth masks. Spatial boundaries $\delta Y$ are extracted via morphological erosion using a $3 \times 3$ structural element $K$:
+    \begin{equation}
+        \delta Y = Y - \text{Erode}(Y, K)
+    \end{equation}
+    Precision ($\text{Prec}_b$) and Recall ($\text{Rec}_b$) computed over the extracted boundaries yield the Boundary F1 metric:
+    \begin{equation}\label{eq:boundary_f1}
+        \text{Boundary F1} = 2 \cdot \frac{\text{Prec}_b \cdot \text{Rec}_b}{\text{Prec}_b + \text{Rec}_b + \epsilon}
+    \end{equation}
+    \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} Measures the performance of the model across different thresholds:
+    \begin{equation}\label{eq:auprc}
+        \text{AUPRC} = \sum_{k} (R_k - R_{k-1}) P_k
+    \end{equation}
+    where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
 \end{itemize}
 
 \section{Results}

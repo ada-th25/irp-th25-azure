@@ -16,7 +16,7 @@ Builds the Landsat and/or VIIRS branches: fetches GOES context imagery, covariat
 python -m src.utils.enrich_manifests --branch <landsat|viirs|both> [--dry-run]
 ```
 
-Reads every manifest, runs `compute_validity` (`src/data/validity.py`) against the actual rasters, and writes `is_valid` / `invalid_reason` back into each manifest. **Must run before step 3** — `split_data.py` filters on `is_valid` and will silently produce empty splits without this step having run first.
+Reads every manifest, runs `compute_validity` (`src/data/validity.py`) against the actual rasters, and writes `is_valid` / `invalid_reason` back into each manifest. **Must run before step 3**, `split_data.py` filters on `is_valid` and will silently produce empty splits without this step having run first.
 
 ## 3. Create train/val/test splits
 
@@ -25,12 +25,12 @@ python src/data/split_data.py --branch <landsat|viirs|both> \
     [--max-samples N] [--suffix <name>] [--overwrite]
 ```
 
-Filters to valid manifests, then does a stratified 80/10/10 split by fire size (4 quantile bins), writing `train.txt` / `val.txt` / `test.txt` to `splits[_<suffix>]/<branch>/` in GCS. Use `--suffix` for smoke-test subsets (e.g. `--max-samples 500 --suffix 500_samples_test`) so they don't clobber the full split.
+Filters to valid manifests, then does a stratified 80/10/10 split by fire size (4 quantile bins), writing `train.txt` / `val.txt` / `test.txt` to `splits[_<suffix>]/<branch>/` in GCS. Use `--suffix` for smoke-test subsets (e.g. `--max-samples 500 --suffix 500_samples_test`).
 
 ## 4. Compute GOES normalisation stats
 
 ```bash
-python -m src.utils.compute_goes_stats
+python -m src.utils.compute_goes_stats --branch <landsat|viirs> [--suffix <name>]
 ```
 
 Loads `train.txt` for the VIIRS branch via `WildfireDataset` and computes per-channel GOES mean/std for normalisation at training time. The values can be used to define the GOES stats in the YAML files in `experiments/`.
