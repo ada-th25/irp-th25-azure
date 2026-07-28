@@ -111,18 +111,18 @@ In recent years, due to rising popularity in Net-Zero initiatives, carbon invest
 
 High-spatial and high-temporal resolution wildfire data is favourable in risk assessment. However, high-temporal resolution data obtained from geostationary satellites (GEO) have limited spatial resolution, which makes them difficult to use for accurate risk assessment. While low orbit satellites (LEO) offers high-spatial resolution, but low-temporal resolution.
 
-To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate physically implausible outputs. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net, a transformer-based model, and a diffusion-based model.
+To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate error caused by the large resolution difference. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net.
 
 \section{Current State of Remote Sensing Downscaling}
-Traditional downscaling methods often fail to capture the complex non-linear patterns and variability in remote sensing data. In recent years, DL methods have shown promising results that outpaces traditional approaches (\cite{sdrakaDeepLearningDownscaling2022}). In particular, Convolutional Neural Networks (CNNs) and U-Net architectures have been widely used for their ability to capture spatial features. Generative Adversarial Networks (GANs) have also been used for their ability to generate sharp images. Recently, Transformer and Diffusion-based approaches have been proposed for downscaling. Transformers use attention mechanisms to capture long-range dependencies (\cite{wangVGGTVisualGeometry2025}), while Diffusion models shows good generative ability and fidelity (\cite{wangSinSRDiffusionBasedImage2023}).
+Traditional downscaling methods often fail to capture the complex non-linear patterns and variability in remote sensing data. Recently, Deep learning methods have shown to consistently outperformed these approaches (\cite{sdrakaDeepLearningDownscaling2022}). CNN and U-Net architectures have been widely used for their ability to capture spatial features. While GAN-based methods have been used where sharpness is prioritised over pixel-wise accuracy. More recently, transformer-based models use long-range attention to capture dependencies beyond a convolution's receptive field (\cite{wangVGGTVisualGeometry2025}), and diffusion-based approaches have showed strong generative ability (\cite{wangSinSRDiffusionBasedImage2023}).
 
-However, many of these approaches struggles preserving fine textures and geometric structures (\cite{qiAdvancingImageSuperresolution2026}). This is problematic for wildfire data, where the spatial patterns and textures are crucial for risk assessment. To address these limitations, there is a need for domain-specific architectures that can better capture the characteristics of wildfire data.
+However, many super-resolution architectures are optimised for texture-rich images. They are not well-suited to the distinct structure of active wildfire data where the target is very sparse. This creates two challenges: severe class imbalance, which biases pixel-wise reconstruction losses and convolutional decoders (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping, where a single low-resolution pixel have many possible high-resolution configurations. Architectures are needed that can both preserve rare, high-magnitude signal against a dominant background class and recover geometrically coherent fire-front structure.
 
-Existing literature remains reliant on direct downscaling methods across large resolution-gaps. Some studies have explored cascaded approaches, such as AMCN-Geoi-DBN from \cite{jingCascadedDownscalingCalibration2022}, and CLIT from \cite{chenCascadedLocalImplicit2023}, but there are currently no research from the literature investigating cascaded downscaling in the context of wildfires. The limitations and benefits of cascaded downscaling is also largely unexplored. To address this gap, the project objectives are:
+Existing literature is dominated by direct downscaling across the full resolution gap. Cascaded approaches exist e.g. AMCN-Geoi-DBN (\cite{jingCascadedDownscalingCalibration2022}) and CLIT (\cite{chenCascadedLocalImplicit2023}) but no prior work evaluates cascaded downscaling for wildfire detection, nor explores the trade-off between the reduced per-stage resolution gap and the accumulation of error across stages. The objectives are:
 
 \begin{enumerate}
     \item Develop a domain-specific, multi-stage framework for wildfire downsclaing.
-    \item Compare the performance of different downscaling architectures in terms of preserving fine textures and geometric structures.
+    \item Compare the performance of different downscaling architectures in terms of accuracy of the predicted fires at high-resolution.
     \item Evaluate the trade-offs of cascaded and direct downscaling and its effectiveness in improving the accuracy of wildfire downscaling.
 \end{enumerate}
 
@@ -198,7 +198,7 @@ HAUNet uses two variants of attention blocks:
 \subsubsection{Full-Resolution Covariate Pyramid Branch}
 Because full spatial attention in S\_CEM imposes an $O((HW)^2)$ memory footprint that causes out-of-memory errors on full-resolution inputs, the inputs ($256 \times 256$) are downsampled by factor $D=4$ (i.e. $256/4 = 64$) before passing to the model. 
 
-To prevent losing high-resolution spatial information of the covariates, we introduce a parallel, full-resolution Covariate Pyramid Encoder. This branch processes full-resolution covariate features using Windowed Spatial-Channel Attention Blocks (Windowed-S\_CEM) (\cite{liuSwinTransformerHierarchical2021}) for computational efficiency.
+The parallel Covariate Pyramid Encoder was introduced because downsampling covariates alongside the fire input discards the HR detail most relevant at the target 30m scale. Processing covariates at full resolution in a separate branch, then progressively fusing into the main decoder path. This branch processes full-resolution covariate features using Windowed Spatial-Channel Attention Blocks (Windowed-S\_CEM) (\cite{liuSwinTransformerHierarchical2021}) for computational efficiency.
 
 For a feature map partitioned into non-overlapping local windows of size $P \times P$ ($P=8$), Windowed-S\_CEM computes spatial attention independently within each window. The window is shifted sequentially with shift size $P/2$. This keeps the spatial attention complexity to $O(P^4)$ per window, independent of overall spatial input dimensions.
 
@@ -217,9 +217,17 @@ The main encoder-decoder path produces low-resolution feature representations ($
     \label{fig:haunet}
 \end{figure}
 
+\subsection{Evaluation Metrics}
+\begin{itemize}
+    \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks.
+    \item \textbf{Precision and Recall:} Reported alongside IoU to capture asymmetric errors in fire detection.
+    \item \textbf{Boundary F1:} Evaluates the precision of the recovered fire-front geometry.
+    \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} Measures the performance of the model across different thresholds.
+\end{itemize}
+
 \section{Results}
 
-\section{Discussions}
+\section{Discussions} \label{sec:discussion}
 
 \section{Conclusions}
 

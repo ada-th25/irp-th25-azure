@@ -11,6 +11,7 @@
 *.bcf
 *.run.xml
 *.bbl-SAVE-ERROR
+*.bcf-SAVE-ERROR
 
 # Ignore data files
 *.nc

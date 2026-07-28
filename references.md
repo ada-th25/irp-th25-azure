@@ -288,3 +288,18 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 25/07/2026
     * **Scope:** Add new metrics: Area Under the Precision-Recall Curve (AUPRC) that calculates precision and recall at different thresholds, and centroid distance that calculates Euclidean distance in m between the location of the predicted heatmap and the predicted heatmap.
     * **Prompt:** "Generate a code that calculates the Area Under the Precision-Recall Curve (AUPRC) that calculates precision and recall at different thresholds, and centroid distance that calculates Euclidean distance in m between the location of the predicted heatmap and the predicted heatmap. This metrics will be calculated to assess the predicted heatmaps of an imbalanced fire dataset."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 27/07/2026
+    * **Scope:** Generate a script that calculates fractinon of active pixels in the target data and prints outs the stats.
+    * **Prompt:** (pasting existing data pipeline) "Generate a script that fetches data from the GCP bucket, and calculates the number of active pixels in the target data and print out the results."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 27/07/2026
+    * **Scope:** Generate a post processing script to process the final Landsat output into a binary fire mask. They can be done either by fixed thresholding or percentile-based. Includes a function that finds the best threshold value from the validation data based on F1 score.
+    * **Prompt:** "Generate a post-processing script that applies either fixed threshold or percentile threshold to post process the probability map into a binary output. Add a function that finds the best threshold value from the validation data based on F1 score."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 27/07/2026
+    * **Scope:** Generate a script that load the trained cascaded downscaling stage 1 model, takes the Landsat dataset, uses GOES+covariates as input to generate the predicted VIIRS data, and saves them in the GCP bucket. This is so that it can be used as input for training the cascaded downscaling stage 2 model.
+    * **Prompt:** (pasting existing training script) "Generate a python script that load the trained cascaded downscaling stage 1 model, takes the Landsat dataset, uses GOES+covariates as input to generate the predicted VIIRS data, and saves them in the GCP bucket."
