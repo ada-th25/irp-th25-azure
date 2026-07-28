@@ -23,7 +23,7 @@ class WildfireAutoencoder(nn.Module):
     VIIRS-branch case where target is smaller than the fused input grid.
     """
 
-    def __init__(self, in_channels: int):
+    def __init__(self, in_channels: int, prior_fire_fraction: float = 0.0085):
         super().__init__()
 
         self.enc_conv1 = nn.Sequential(nn.Conv2d(in_channels, 64, kernel_size=3, padding=1), nn.ReLU())
