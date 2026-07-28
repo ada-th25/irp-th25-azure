@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
 
+def make_model(goes_channels: int, cov_channels: int, stage1_channels: int = 0,
+                prior_fire_fraction: float = 0.0085, **kwargs) -> WildfireAutoencoder:
+    return WildfireAutoencoder(
+        in_channels=goes_channels + cov_channels + stage1_channels,
+        prior_fire_fraction=prior_fire_fraction,
+    )
 
 class WildfireAutoencoder(nn.Module):
     """
@@ -49,6 +55,10 @@ class WildfireAutoencoder(nn.Module):
 
         self.final_conv = nn.Conv2d(64, 1, kernel_size=3, padding=1)
         #self.activation = nn.Sigmoid()
+        
+        with torch.no_grad():
+            bias_val = torch.logit(torch.tensor(prior_fire_fraction))
+            self.final_conv.bias.fill_(bias_val)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         e1 = self.enc_conv1(x)

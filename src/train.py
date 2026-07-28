@@ -18,6 +18,7 @@ import yaml
 from torch.utils.data import DataLoader
 from google.cloud import storage
 from google.auth import default
+from concurrent.futures import ThreadPoolExecutor
 
 # Local modules
 sys.path.append(str(Path(__file__).parent))
@@ -55,16 +56,22 @@ def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output
     keyed by sample id. Avoids loading full raster data just to get a
     pixel count.
     """
-    counts = {}
     prefix = f"{output_prefix}/{branch}_pairs/manifest/"
     split_id_set = set(split_ids)
-    for blob in bucket.list_blobs(prefix=prefix):
-        if not blob.name.endswith(".json"):
-            continue
+    blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith(".json")]
+
+    def _read(blob):
         m = json.loads(blob.download_as_text())
         sid = m.get("id")
         if sid in split_id_set:
-            counts[sid] = m.get("n_active_pixels") or m.get("n_detections") or 1
+            return sid, (m.get("n_active_pixels") or m.get("n_detections") or 1)
+        return None
+
+    counts = {}
+    with ThreadPoolExecutor(max_workers=32) as ex:
+        for result in ex.map(_read, blobs):
+            if result:
+                counts[result[0]] = result[1]
     return counts
 
 # ------------------------------------------------------------------
