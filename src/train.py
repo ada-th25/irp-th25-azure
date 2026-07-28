@@ -259,15 +259,9 @@ def validate(
         logits = model(inp)
         if logits.shape[-2:] != target.shape[-2:]:
             logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
-            #logits = F.interpolate(logits, size=target.shape[-2:], mode='area')
         
         loss = criterion(logits, target)
         total_loss += loss.item()
-
-        # Threshold targets back to binary for standard metrics
-        # If using gaussian heatmaps, values at the center are 1.0, neighboring pixels fall off
-        # Thresholding at 0.5 retains the core region of the true peak for evaluation
-        #binary_target = (target >= 0.5).float()
         
         total_iou += compute_iou(logits, target, threshold=threshold)
         total_iou_lowthresh += compute_iou(logits, target, threshold=low_threshold)
