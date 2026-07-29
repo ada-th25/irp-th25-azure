@@ -88,7 +88,7 @@ class WildfireDataset(Dataset):
          dilate_target=False, heatmap_target=False,
          goes_mean=None, goes_std=None, heatmap_sigma=1.0,
          manifest_workers=32,
-         use_stage1_pred=False, stage1_pred_key="stage1_pred"):
+         use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
 
         # Ensure mutual exclusion as requested
         if dilate_target and heatmap_target:
@@ -105,6 +105,7 @@ class WildfireDataset(Dataset):
         self._client_pid = None   # tracks which process created self._bucket
         self.use_stage1_pred = use_stage1_pred
         self.stage1_pred_key = stage1_pred_key   # key in manifest["paths"] pointing to the stage-1 raster
+        self.augment = augment
 
         # GOES per-channel standardization stats (computed via compute_goes_stats.py
         # over the training split)
@@ -395,11 +396,19 @@ class WildfireDataset(Dataset):
     
         input_channels.append(cov)
         inp = torch.cat(input_channels, dim=0)
+
+        if self.augment:
+            if torch.rand(1).item() < 0.5:
+                inp = torch.flip(inp, dims=[-1])       # horizontal flip
+                target = torch.flip(target, dims=[-1])
+            if torch.rand(1).item() < 0.5:
+                inp = torch.flip(inp, dims=[-2])       # vertical flip
+                target = torch.flip(target, dims=[-2])
  
         return {
             "input":      inp,       # (goes_ch + cov_ch, H, W) model input
             "target":     target,    # (1, H, W) fire mask, H,W = target_size
-            "goes":       goes,      # (3, goes_H, goes_W) raw GOES, for diagnostics
+            "goes":       goes,      # (3, goes_H, goes_W) raw GOES
             "covariates": cov,       # (2, H, W) DEM + land cover, H,W = cov_size
             "sample_id":  manifest["id"],
             "date":       manifest["date"],

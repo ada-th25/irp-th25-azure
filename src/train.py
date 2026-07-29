@@ -487,7 +487,7 @@ def main():
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
-        use_stage1_pred=use_stage1_pred,
+        use_stage1_pred=use_stage1_pred, augment=True
     )
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids,
@@ -495,7 +495,7 @@ def main():
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
-        use_stage1_pred=use_stage1_pred,
+        use_stage1_pred=use_stage1_pred, augment=False
     )
     
     train_loader = DataLoader(
