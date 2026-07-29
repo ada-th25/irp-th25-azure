@@ -76,7 +76,7 @@ def parse_args():
 
 
 def build_model(cfg: dict, config_path: str) -> torch.nn.Module:
-    model_type = cfg.get("model", {}).get("type", "").lower()
+    model_type = cfg.get("model", {}).get("name", "").lower()
     exp_name = cfg.get("experiment", {}).get("name", "").lower()
     config_str = config_path.lower()
 
