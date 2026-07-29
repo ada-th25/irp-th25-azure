@@ -303,3 +303,18 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 27/07/2026
     * **Scope:** Generate a script that load the trained cascaded downscaling stage 1 model, takes the Landsat dataset, uses GOES+covariates as input to generate the predicted VIIRS data, and saves them in the GCP bucket. This is so that it can be used as input for training the cascaded downscaling stage 2 model.
     * **Prompt:** (pasting existing training script) "Generate a python script that load the trained cascaded downscaling stage 1 model, takes the Landsat dataset, uses GOES+covariates as input to generate the predicted VIIRS data, and saves them in the GCP bucket."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 28/07/2026
+    * **Scope:** Optimise the `src/train.py` script so the weighted sampler builder is faster
+    * **Prompt:** (pasting existing training script) "Optimise this script so that the load_positive_pixel_counts run faster."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 29/07/2026
+    * **Scope:** Generate `src/utils/compute_dem_stats.py` that mirrors `src/utils/compute_goes_stats.py` so it calculates DEM stats to be used for standardisation. Only calculated with train data.
+    * **Prompt:** (pasting goes stat calculation script) "Generate a script that calculates the mean and standard deviation of the DEM data in the train set only."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 29/07/2026
+    * **Scope:** Generate `src/evaluate.py` where trained model is laoded and inferenced using test dataset, then metrics are calculated and logged into a csv file.
+    * **Prompt:** (pasting train and metrics script) "Write a script that evaluates the trained model by inferencing the test dataset, and calculates the metrics. Write the results in a csv file."
