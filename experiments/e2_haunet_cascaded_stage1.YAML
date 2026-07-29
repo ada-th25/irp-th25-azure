@@ -1,0 +1,70 @@
+# experiments/e2_haunet_cascaded_stage1.YAML
+# ===================================
+# Stage 1 of the cascaded pipeline (GOES -> VIIRS), HAUNet, focal_dice loss.
+experiment:
+  name: e2_haunet_cascaded_stage1_focal_dice_v2
+  branch: viirs
+
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits              # <- full 80/10/10 split, not the smoke-test subset
+  heatmap_sigma: 1.2              # unused when heatmap_target: false, harmless to leave
+  goes_mean: [304.41929302202146, 295.34150143596486, 9.077791586056561] # GOES stats calculated only from the train dataset
+  goes_std: [13.706893469524932, 10.664054013234717, 7.4233895594608095]
+  heatmap_target: false           # focal_dice expects a binary {0,1} target
+  dilate_target: false            # consider true if fire pixels are too sparse for Dice to get gradient signal
+  goes_channels: 3
+  cov_channels: 2
+  num_workers: 4
+  use_stage1_pred: false
+  stage1_channels: 0
+
+model:
+  name: haunet
+  drop_out_rate: 0.1
+  # prior_fire_fraction: <measured VIIRS positive-pixel fraction>
+  # defaults to 0.0085 if omitted
+
+training:
+  batch_size: 2
+  grad_accum_steps: 4             # effective batch size = 2 * 4 = 8
+  epochs: 20
+  learning_rate: 1.0e-3
+  min_lr: 1.0e-6
+  weight_decay: 1.0e-4
+  grad_clip: 2.0
+  val_every_n_epochs: 1
+  save_every_n_epochs: 3
+  use_weighted_sampler: true      # worth enabling given severe fire/background imbalance
+
+evaluation:
+  threshold: 0.5
+  low_threshold: 0.3
+  compute_ipsnr: true
+  pixel_size_m: 384.0             # VIIRS
+  log_postprocessed: false         # skips post processing
+
+postprocess:
+  method: percentile
+  percentile: 99.5
+  fixed_threshold: 0.5
+  min_component_size: 4
+
+checkpointing:
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage1_focal_dice_v2
+  keep_last_n: 1
+  best_metric: val_auprc
+
+logging:
+  log_dir: logs
+  use_wandb: false                # flip to true for the real run if you want it tracked
+
+loss:
+  type: focal_dice
+  alpha: 0.85
+  gamma: 1.5
+  focal_weight: 1.0
+  dice_weight: 1.0
+  smooth: 0.001
