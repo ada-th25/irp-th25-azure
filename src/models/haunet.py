@@ -15,7 +15,7 @@ def set_reflect_padding(model):
     return model
 
 def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
-               cov_refine_channels=32, cov_window_size=8, prior_fire_fraction=0.0085, stage1_channels=0):
+               cov_refine_channels=32, cov_window_size=8, prior_fire_fraction=0.0085, stage1_channels=0, drop_out_rate=0.0):
     """
     Factory function for the wildfire-adapted HAUNet.
  
@@ -52,6 +52,7 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
         cov_refine_channels=cov_refine_channels,
         cov_window_size=cov_window_size,
         prior_fire_fraction=prior_fire_fraction,
+        drop_out_rate=drop_out_rate,
     )
     return set_reflect_padding(model)
 
@@ -590,6 +591,7 @@ class HAUNet(nn.Module):
         cov_refine_channels = 32,
         cov_window_size = 8,
         prior_fire_fraction = 0.0085,
+        drop_out_rate = 0.0,
     ):
         super().__init__()
 
@@ -619,21 +621,21 @@ class HAUNet(nn.Module):
         for numii, num in enumerate(enc_blk_nums):
             if numii < 1:
                 self.encoders.append(nn.Sequential(
-                    *[S_CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
+                    *[S_CEMBlock(chan, num_heads=heads[ii], drop_out_rate=drop_out_rate) for _ in range(num)]
                 ))
             else:
                 self.encoders.append(nn.Sequential(
-                    *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(num)]
+                    *[CEMBlock(chan, num_heads=heads[ii], drop_out_rate=drop_out_rate) for _ in range(num)]
                 ))
             self.downs.append(nn.Conv2d(chan, chan, 2, 2))
             ii += 1
  
         self.lateral_nafblock = lateral_nafblock(chan)
         self.enc_middle_blks  = nn.Sequential(
-            *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
+            *[CEMBlock(chan, num_heads=heads[ii], drop_out_rate=drop_out_rate) for _ in range(middle_blk_num // 2)]
         )
         self.dec_middle_blks  = nn.Sequential(
-            *[CEMBlock(chan, num_heads=heads[ii]) for _ in range(middle_blk_num // 2)]
+            *[CEMBlock(chan, num_heads=heads[ii], drop_out_rate=drop_out_rate) for _ in range(middle_blk_num // 2)]
         )
  
         ii = 0
@@ -644,11 +646,11 @@ class HAUNet(nn.Module):
             ))
             if numii < 1:
                 self.decoders.append(nn.Sequential(
-                    *[CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
+                    *[CEMBlock(chan, num_heads=heads[1 - ii], drop_out_rate=drop_out_rate) for _ in range(num)]
                 ))
             else:
                 self.decoders.append(nn.Sequential(
-                    *[S_CEMBlock(chan, num_heads=heads[1 - ii]) for _ in range(num)]
+                    *[S_CEMBlock(chan, num_heads=heads[1 - ii], drop_out_rate=drop_out_rate) for _ in range(num)]
                 ))
             ii += 1
  

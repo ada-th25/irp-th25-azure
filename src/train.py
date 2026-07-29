@@ -486,6 +486,8 @@ def main():
         dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
+        dem_mean=cfg["data"].get("dem_mean"),
+        dem_std=cfg["data"].get("dem_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
         use_stage1_pred=use_stage1_pred, augment=True
     )
@@ -494,6 +496,8 @@ def main():
         dilate_target=dilate_target, heatmap_target=heatmap_target,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
+        dem_mean=cfg["data"].get("dem_mean"),
+        dem_std=cfg["data"].get("dem_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
         use_stage1_pred=use_stage1_pred, augment=False
     )

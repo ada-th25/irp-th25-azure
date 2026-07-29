@@ -65,7 +65,7 @@ class WildfireDataset(Dataset):
         Landsat branch:
             goes       -> (3, 4, 4)     native GOES context (context_ratio=1)
             goes_up    -> (3, 256, 256) upsampled for concatenation
-            covariates -> (2, 256, 256) native (30m)
+            covariates -> (12, 256, 256) native (30m)
             target     -> (1, 256, 256) untouched fire patch
  
         VIIRS branch (stage 1 -- full-res input, native-res output):
@@ -86,7 +86,7 @@ class WildfireDataset(Dataset):
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
          target_size=None, cov_size=None, goes_size=None, 
          dilate_target=False, heatmap_target=False,
-         goes_mean=None, goes_std=None, heatmap_sigma=1.0,
+         goes_mean=None, goes_std=None, dem_mean=None, dem_std=None, heatmap_sigma=1.0,
          manifest_workers=32,
          use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
 
@@ -107,12 +107,18 @@ class WildfireDataset(Dataset):
         self.stage1_pred_key = stage1_pred_key   # key in manifest["paths"] pointing to the stage-1 raster
         self.augment = augment
 
-        # GOES per-channel standardization stats (computed via compute_goes_stats.py
+        # GOES per-channel standardisation stats (computed via compute_goes_stats.py
         # over the training split)
         default_goes_mean = [305.98227561473846, 296.6176749324799, 9.364600682258606]
         default_goes_std  = [12.870277949475222, 9.583713562045117, 7.1649856621255585]
         self.goes_mean = torch.tensor(goes_mean if goes_mean is not None else default_goes_mean).view(-1, 1, 1)
         self.goes_std  = torch.tensor(goes_std if goes_std is not None else default_goes_std).view(-1, 1, 1)
+
+        # DEM standardisation
+        default_dem_mean = [0.3390881556710402]
+        default_dem_std  = [0.5048759609237181]
+        self.dem_mean = torch.tensor(dem_mean if dem_mean is not None else default_dem_mean).view(-1, 1, 1)
+        self.dem_std  = torch.tensor(dem_std if dem_std is not None else default_dem_std).view(-1, 1, 1)
  
         defaults = DEFAULT_SIZES.get(branch, DEFAULT_SIZES["landsat"])
         self.target_size = tuple(target_size) if target_size is not None else defaults["target_size"]
@@ -318,6 +324,17 @@ class WildfireDataset(Dataset):
         return heatmap.unsqueeze(0)
 
     # ------------------------------------------------------------------
+    # Onehot Landcover 
+    # ------------------------------------------------------------------
+
+    LANDCOVER_CLASSES = [10, 20, 30, 40, 50, 60, 80, 90, 95, 100]
+
+    def _onehot_landcover(self, lc_code):
+        # lc_code: (1, H, W) raw class codes
+        stacks = [(lc_code[0] == c).float() for c in self.LANDCOVER_CLASSES]
+        return torch.stack(stacks, dim=0)  # (N, H, W)
+
+    # ------------------------------------------------------------------
     # Dataset protocol
     # ------------------------------------------------------------------
 
@@ -334,8 +351,10 @@ class WildfireDataset(Dataset):
 
         goes = (goes - self.goes_mean) / self.goes_std
 
-        cov[0] = cov[0] / 1000.0          # DEM in km instead of meters
-        cov[1] = cov[1] / 100.0           # land cover code roughly to [0,1]
+        dem = cov[0:1] / 1000.0                    # km
+        dem = (dem - self.dem_mean) / self.dem_std  # standardise
+        lc_onehot = self._onehot_landcover(cov[1:2])
+        cov = torch.cat([dem, lc_onehot], dim=0)   # (1+N, H, W)
     
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
         goes = F.interpolate(
@@ -409,7 +428,7 @@ class WildfireDataset(Dataset):
             "input":      inp,       # (goes_ch + cov_ch, H, W) model input
             "target":     target,    # (1, H, W) fire mask, H,W = target_size
             "goes":       goes,      # (3, goes_H, goes_W) raw GOES
-            "covariates": cov,       # (2, H, W) DEM + land cover, H,W = cov_size
+            "covariates": cov,       # (C, H, W) DEM + land cover, H,W = cov_size
             "sample_id":  manifest["id"],
             "date":       manifest["date"],
         }
