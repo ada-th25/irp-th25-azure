@@ -1,6 +1,6 @@
 """
 Plot GOES bands, covariates, true target, and predicted fire probability
-for a handful of validation samples, side by side.
+for a handful of val/train/test samples, side by side.
 
 Usage:
     # Basic prediction plot
@@ -19,7 +19,6 @@ Usage:
         --pp-percentile 99.5 \
         --seed 42
 """
-
 import argparse
 import random
 import sys
@@ -28,7 +27,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")   # headless -- no display needed on the GCP instance
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -38,8 +37,10 @@ from torch.utils.data import DataLoader
 
 sys.path.append(str(Path(__file__).parent))
 from src.data.wildfire_dataset import WildfireDataset, load_split_ids
-from src.models.haunet import make_model
 from postprocess import postprocess_prediction
+
+from src.models.autoencoder import make_model as make_autoencoder_model
+from src.models.haunet import make_model as make_haunet_model
 
 
 @contextmanager
@@ -54,22 +55,43 @@ def parse_args():
     p.add_argument("--config", required=True)
     p.add_argument("--checkpoint", default=None)
     p.add_argument("--n-samples", type=int, default=4)
-    p.add_argument("--split", default="val", choices=["train", "val"])
+    p.add_argument(
+        "--split",
+        default="val",
+        choices=["train", "val", "test"],
+        help="Dataset split to sample from (train, val, or test).",
+    )
     p.add_argument("--out", default="predictions.png")
     p.add_argument("--num-workers", type=int, default=0,
-                    help="DataLoader workers. 0 is usually faster for a single batch, "
-                         "since each worker pays process-spawn + import overhead before "
-                         "it even starts fetching data.")
+                    help="DataLoader workers. 0 is usually faster for a single batch.")
     p.add_argument("--seed", type=int, default=None,
                     help="Optional seed for reproducible sample selection.")
     p.add_argument("--show-postprocessed", action="store_true",
-                    help="Add columns showing the post-processed binary mask "
-                         "alongside raw prediction.")
+                    help="Add columns showing the post-processed binary mask alongside raw prediction.")
     p.add_argument("--pp-method", default="percentile", choices=["percentile", "fixed"])
     p.add_argument("--pp-percentile", type=float, default=99.5)
     p.add_argument("--pp-fixed-threshold", type=float, default=0.5)
     p.add_argument("--pp-min-component-size", type=int, default=4)
     return p.parse_args()
+
+
+def build_model(cfg: dict, config_path: str) -> torch.nn.Module:
+    model_type = cfg.get("model", {}).get("type", "").lower()
+    exp_name = cfg.get("experiment", {}).get("name", "").lower()
+    config_str = config_path.lower()
+
+    # Route to Autoencoder if specified in model type, experiment name, or config filename
+    if "autoencoder" in model_type or "autoencoder" in exp_name or "autoencoder" in config_str:
+        return make_autoencoder_model(
+            goes_channels=cfg["data"]["goes_channels"],
+            cov_channels=cfg["data"]["cov_channels"],
+            stage1_channels=cfg["data"].get("stage1_channels", 0),
+        )
+    
+    return make_haunet_model(
+        goes_channels=cfg["data"]["goes_channels"],
+        cov_channels=cfg["data"]["cov_channels"],
+    )
 
 
 def main():
@@ -78,8 +100,6 @@ def main():
         random.seed(args.seed)
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
-
-    t_start = time.time()
 
     with timed("load config"):
         with open(args.config) as f:
@@ -103,11 +123,6 @@ def main():
             goes_std=cfg["data"].get("goes_std"),
         )
 
-    # Instead of asking the DataLoader to shuffle the *entire* dataset and
-    # spin up worker processes for a single batch, just pick n random
-    # indices ourselves and fetch them directly. This sidesteps:
-    #   (a) worker process spawn/import overhead for one batch
-    #   (b) any up-front full-dataset shuffling/indexing cost
     n = min(args.n_samples, len(ds))
     chosen_idx = random.sample(range(len(ds)), n)
 
@@ -118,29 +133,25 @@ def main():
     else:
         from torch.utils.data import Subset
         subset = Subset(ds, chosen_idx)
-        loader = DataLoader(subset, batch_size=n, shuffle=False,
-                             num_workers=args.num_workers)
+        loader = DataLoader(subset, batch_size=n, shuffle=False, num_workers=args.num_workers)
         with timed(f"fetch {n} samples via DataLoader (num_workers={args.num_workers})"):
             batch = next(iter(loader))
 
     inp = batch["input"].to(device)
-    #inp[:, :3] = 0.0 # zero the GOES channels (first 3), keep DEM/land cover
     target = batch["target"].to(device)
-    goes = batch["goes"]          # (B, 3, goes_H, goes_W) -- raw, low-res
-    cov = batch["covariates"]     # (B, 2, cov_H, cov_W) -- as fed to the model
-    sample_ids = batch["sample_id"]
+    goes = batch["goes"]
+    cov = batch["covariates"]
 
     with timed("build model"):
-        model = make_model(
-            goes_channels=cfg["data"]["goes_channels"],
-            cov_channels=cfg["data"]["cov_channels"],
-        ).to(device)
+        model = build_model(cfg, args.config).to(device)
 
     if args.checkpoint:
         with timed("load checkpoint"):
             ckpt = torch.load(args.checkpoint, map_location=device)
-            model.load_state_dict(ckpt["model"])
-        print(f"Loaded checkpoint: {args.checkpoint} (epoch {ckpt.get('epoch')})")
+            # Handle checkpoints saved under "model" or "state_dict" keys
+            state_dict = ckpt.get("model", ckpt.get("state_dict", ckpt))
+            model.load_state_dict(state_dict)
+        print(f"Loaded checkpoint: {args.checkpoint} (epoch {ckpt.get('epoch', 'N/A')})")
     else:
         print("No checkpoint given -- using freshly initialised weights.")
 
@@ -167,7 +178,7 @@ def main():
         col_titles.append("Post-processed mask")
 
     with timed("plot + save figure"):
-        fig, axes = plt.subplots(n, n_cols, figsize=(3 * n_cols, 3 * n))
+        fig, axes = plt.subplots(n, n_cols, figsize=(3.2 * n_cols, 3 * n))
         if n == 1:
             axes = axes[np.newaxis, :]
 
@@ -182,38 +193,32 @@ def main():
                 cov_np[0], cov_np[1],
                 target_np, prob_np,
             ]
-            cmaps = ["inferno", "inferno", "inferno", "terrain", "tab20", "hot", "hot"]
-            vmins_vmaxs = [
-                (None, None), (None, None), (None, None),
-                (None, None), (None, None),
-                (0, 1), (None, None),
-            ]
-
             if args.show_postprocessed:
                 panels.append(pp_mask[row, 0].cpu().numpy())
+
+            cmaps = ["inferno", "inferno", "inferno", "terrain", "tab20", "hot", "hot"]
+            if args.show_postprocessed:
                 cmaps.append("gray")
-                vmins_vmaxs.append((0, 1))
 
             for col in range(n_cols):
                 ax = axes[row, col]
-                vmin, vmax = vmins_vmaxs[col]
-                im = ax.imshow(panels[col], cmap=cmaps[col], vmin=vmin, vmax=vmax)
+                im = ax.imshow(panels[col], cmap=cmaps[col])
+                
+                # Add colorbar specifically for target and prediction to show value ranges
+                if col_titles[col] in ["True target", "Predicted P(fire)"]:
+                    im.set_clim(0.0, 1.0)  # Pin range to [0, 1] for probability scale
+                    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    cbar.ax.tick_params(labelsize=8)
+
                 if row == 0:
                     ax.set_title(col_titles[col], fontsize=10)
-                if col == 0:
-                    ax.set_ylabel(sample_ids[row], fontsize=8)
-                ax.set_xticks([])
-                ax.set_yticks([])
-                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                ax.axis("off")
 
         plt.tight_layout()
-        plt.savefig(args.out, dpi=120)
+        plt.savefig(args.out, dpi=150, bbox_inches="tight")
+        plt.close()
 
-    print(f"\nSaved figure to {args.out}")
-    print(f"Sample IDs plotted: {list(sample_ids)}")
-    print(f"Predicted prob range: {probs.min().item():.4f} - {probs.max().item():.4f}")
-    print(f"Target range: {target.min().item():.4f} - {target.max().item():.4f}")
-    print(f"\n[timing] TOTAL: {time.time() - t_start:.2f}s")
+    print(f"Saved plot to {args.out}")
 
 
 if __name__ == "__main__":
