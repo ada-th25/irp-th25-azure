@@ -1,11 +1,6 @@
 """
 Plot train/val loss curves from a training run's CSV log.
 
-Handles ragged rows produced by CSVLogger when a run is resumed and a new
-logger instance ends up appending rows with a different number of fields
-than the file's original header (e.g. non-validation epochs interleaved
-with validation epochs after a resume).
-
 Usage:
     python plot_loss.py --csv logs_smoke/<exp_name>.csv
     python plot_loss.py --csv logs_smoke/<exp_name>.csv --out loss_curve.png
@@ -22,7 +17,8 @@ FULL_COLUMNS = [
     "epoch", "train_loss", "lr",
     "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
     "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
-    "val_auprc", "val_centroid_dist_m",
+    "val_auprc", "val_centroid_dist_m", "pp_iou", "pp_boundary_f1", "pp_precision", "pp_recall",
+    "pp_pixel_f1", "pp_centroid_dist_m",
 ]
 
 
