@@ -150,3 +150,17 @@
     - Consider reducing the area of interest/forcing the model to focus on certain parts to remove unnecessary noise and improve accuracy.
 - **Work Plan Before Next Meeting:**
     - Write up a document with my project progress to send to Anna.
+
+### Chat with Main Supervisor (30 Jul 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Presented the results for GOES -> VIIRS training.
+    - Discuss next steps, including possible things to try to improve model and experiments to do for the report.
+- **Feedback:**
+    - If time allows, look into using climate data.
+    - Try to prioritise overestimation over underestimation, e.g. dilate target data to predict larger area.
+    - Try different experiments, such as different losses, see results if covariates are removed etc. to see what contributes the most.
+    - Try to train on more data.
+- **Work Plan Before Next Meeting:**
+    - Download more VIIRS data and train with it.
+    - Train the model with dilated targets, try different losses etc and log results.

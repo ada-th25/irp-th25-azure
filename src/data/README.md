@@ -27,10 +27,12 @@ python src/data/split_data.py --branch <landsat|viirs|both> \
 
 Filters to valid manifests, then does a stratified 80/10/10 split by fire size (4 quantile bins), writing `train.txt` / `val.txt` / `test.txt` to `splits[_<suffix>]/<branch>/` in GCS. Use `--suffix` for smoke-test subsets (e.g. `--max-samples 500 --suffix 500_samples_test`).
 
-## 4. Compute GOES normalisation stats
+## 4. Compute GOES and DEM normalisation stats
 
 ```bash
 python -m src.utils.compute_goes_stats --branch <landsat|viirs> [--suffix <name>]
+
+python -m src.utils.compute_dem_stats --branch <landsat|viirs> [--suffix <name>]
 ```
 
 Loads `train.txt` for the VIIRS branch via `WildfireDataset` and computes per-channel GOES mean/std for normalisation at training time. The values can be used to define the GOES stats in the YAML files in `experiments/`.
