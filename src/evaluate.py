@@ -42,7 +42,7 @@ GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussi
 
 # Column order for the per-sample CSV.
 CSV_COLUMNS = [
-    "sample_id", "iou", "iou_t03", "ipsnr", "boundary_f1",
+    "sample_id", "iou", "iou_t03", "soft_iou", "ipsnr", "boundary_f1",
     "precision", "recall", "pixel_f1", "auprc", "centroid_dist_m",
     "pp_iou", "pp_boundary_f1", "pp_precision", "pp_recall",
     "pp_pixel_f1", "pp_centroid_dist_m",
@@ -76,6 +76,7 @@ def evaluate_sample(model, batch, device, threshold, low_threshold,
     row = {
         "iou": compute_iou(logits, target, threshold=threshold),
         "iou_t03": compute_iou(logits, target, threshold=low_threshold),
+        "soft_iou": compute_soft_iou(logits, target),
         "boundary_f1": compute_boundary_f1(logits, target, threshold=threshold),
         "auprc": compute_auprc(logits, target),
         "centroid_dist_m": compute_centroid_distance(logits, target, pixel_size_m=pixel_size_m),
@@ -167,7 +168,7 @@ def main():
 
     default_heatmap = loss_type in GAUSSIAN_LOSS_TYPES
     heatmap_target = cfg["data"].get("heatmap_target", default_heatmap)
-    dilate_target = cfg["data"].get("dilate_target", False)
+    dilate_target = False #cfg["data"].get("dilate_target", False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -198,8 +199,19 @@ def main():
     # ------------------------------------------------------------------
     # Model
     # ------------------------------------------------------------------
-    model = build_model(cfg, device)
     ckpt = torch.load(args.checkpoint, map_location=device)
+
+    model_cfg = ckpt.get("config", cfg)
+    if "config" not in ckpt:
+        print("  [WARN] Checkpoint has no saved 'config' -- building model "
+              "from --config instead. Verify channel counts match training.")
+    elif model_cfg.get("data", {}).get("goes_channels") != cfg["data"]["goes_channels"] or \
+         model_cfg.get("data", {}).get("cov_channels") != cfg["data"]["cov_channels"]:
+        print("  [WARN] --config data channels differ from the config saved in the "
+              "checkpoint. Using the checkpoint's config for model architecture; "
+              "eval settings (thresholds, splits, paths) still come from --config.")
+
+    model = build_model(model_cfg, device)
     result = model.load_state_dict(ckpt["model"], strict=False)
     if result.missing_keys:
         print(f"  [WARN] Missing keys: {result.missing_keys}")
@@ -251,7 +263,7 @@ def main():
         writer.writeheader()
 
         for i, batch in enumerate(test_loader):
-            sample_id = test_ids[i]  # DataLoader shuffle=False -> order preserved
+            sample_id = batch["sample_id"][0]  # batch_size=1; dataset returns manifest["id"] per item
 
             row = evaluate_sample(
                 model, batch, device,

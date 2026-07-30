@@ -496,7 +496,7 @@ def main():
     )
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids,
-        dilate_target=dilate_target, heatmap_target=heatmap_target,
+        dilate_target=False, heatmap_target=False,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         dem_mean=cfg["data"].get("dem_mean"),
