@@ -318,3 +318,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 29/07/2026
     * **Scope:** Generate `src/evaluate.py` where trained model is laoded and inferenced using test dataset, then metrics are calculated and logged into a csv file.
     * **Prompt:** (pasting train and metrics script) "Write a script that evaluates the trained model by inferencing the test dataset, and calculates the metrics. Write the results in a csv file."
+
+* **Tool:** Google Gemini (3.6)
+    * **Date Used:** 30/07/2026
+    * **Scope:** Generate draft section for draft README file, including Quickstart.
+    * **Prompt:** (pasting existing draft README) "Add suggested section for repository README"
+    * **Human Modification:** Replace placeholders with my repo/project info.
