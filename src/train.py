@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Local modules
 sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
-from metrics import compute_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall, compute_auprc, compute_centroid_distance
+from metrics import compute_iou, compute_soft_iou, compute_ipsnr, compute_boundary_f1, compute_precision_recall, compute_auprc, compute_centroid_distance
 from losses import build_loss
 from utils.postprocess import postprocess_prediction
 import importlib
@@ -41,7 +41,7 @@ GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussi
 # Metrics where higher is better vs lower is better, used to generalise the
 # "is_best" checkpoint comparison beyond a hardcoded val_iou.
 HIGHER_IS_BETTER = {
-    "val_iou": True, "val_iou_t03": True, "val_ipsnr": True,
+    "val_iou": True, "val_soft_iou": True, "val_iou_t03": True, "val_ipsnr": True,
     "val_boundary_f1": True, "val_precision": True, "val_recall": True,
     "val_pixel_f1": True, "val_loss": False,
     "val_auprc": True, "val_centroid_dist_m": False,
@@ -105,7 +105,7 @@ def prune_old_checkpoints(bucket, gcs_prefix: str, keep_last_n: int) -> None:
 class CSVLogger:
     DEFAULT_COLUMNS = [
         "epoch", "train_loss", "lr",
-        "val_loss", "val_iou", "val_iou_t03", "val_ipsnr",
+        "val_loss", "val_iou","val_iou_t03", "val_soft_iou", "val_ipsnr",
         "val_boundary_f1", "val_precision", "val_recall", "val_pixel_f1",
         "val_auprc", "val_centroid_dist_m",
         "pp_iou", "pp_boundary_f1", "pp_precision", "pp_recall",
@@ -248,6 +248,7 @@ def validate(
     total_loss = 0.0
     total_iou = 0.0
     total_iou_lowthresh = 0.0
+    total_soft_iou = 0.0
     total_ipsnr = 0.0
     total_bf1 = 0.0
     total_precision = 0.0
@@ -272,6 +273,7 @@ def validate(
         
         total_iou += compute_iou(logits, target, threshold=threshold)
         total_iou_lowthresh += compute_iou(logits, target, threshold=low_threshold)
+        total_soft_iou += compute_soft_iou(logits, target)
         total_bf1 += compute_boundary_f1(logits, target, threshold=threshold)
  
         pr = compute_precision_recall(logits, target, threshold=threshold)
@@ -296,6 +298,7 @@ def validate(
         "val_loss": total_loss / n_batches,
         "val_iou": total_iou / n_batches,
         "val_iou_t03": total_iou_lowthresh / n_batches,
+        "val_soft_iou": total_soft_iou / n_batches,
         "val_ipsnr": (total_ipsnr / max(n_ipsnr, 1)) if compute_ipsnr_flag else 0.0,
         "val_boundary_f1": total_bf1 / n_batches,
         "val_precision": total_precision / n_batches,

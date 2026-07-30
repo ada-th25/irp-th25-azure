@@ -28,6 +28,41 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor,
     return (intersection / union).item()
 
 
+def compute_soft_iou(preds: torch.Tensor, targets: torch.Tensor, eps: float = 1e-8) -> float:
+    """
+    Threshold-free ("soft") IoU using raw probabilities instead of a
+    binarized prediction mask.
+
+    Unlike compute_iou, this never hard-zeros a sample just because the
+    model's peak probability falls short of a fixed cutoff. Useful for
+    a sparse-positive task, where median IoU at threshold=0.5
+    collapses to 0.0 for the majority of samples regardless of how well
+    the underlying probability map is spatially aligned with the target.
+
+    Args:
+        preds:   (B, 1, H, W) raw logits (pre-sigmoid)
+        targets: (B, 1, H, W) ground truth in [0, 1] (binary or continuous
+                  heatmap both work -- no thresholding applied to either)
+
+    Returns:
+        Scalar soft IoU averaged over the batch. Returns 1.0 for a sample
+        if both prediction and target are all-zero (same convention as
+        compute_iou's empty-union case).
+    """
+    probs = torch.sigmoid(preds)
+    target = targets
+
+    intersection = (probs * target).sum(dim=(1, 2, 3))
+    union = (probs + target - probs * target).sum(dim=(1, 2, 3))
+
+    iou = torch.where(
+        union < eps,
+        torch.ones_like(union),
+        intersection / (union + eps),
+    )
+    return iou.mean().item()
+
+
 def compute_ipsnr(preds: torch.Tensor, targets: torch.Tensor,
                   threshold: float = 0.5, eps: float = 1e-8) -> float:
     """
@@ -195,6 +230,7 @@ def compute_all_metrics(preds: torch.Tensor, targets: torch.Tensor,
     pr = compute_precision_recall(preds, targets, threshold)
     return {
         "iou":                  compute_iou(preds, targets, threshold),
+        "soft_iou":             compute_soft_iou(preds, targets),
         "ipsnr":                compute_ipsnr(preds, targets, threshold),
         "boundary_f1":          compute_boundary_f1(preds, targets, threshold),
         "precision":            pr["precision"],
