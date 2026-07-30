@@ -95,7 +95,7 @@
 %          ABSTRACT & CONTENTS
 % ==========================================
 \begin{abstract}
-With climate change, there's an increasing need for a higher-resolution wildfire data for better monitoring and risk assessment. GEO satellites have high-temporal resolution, but lacks spatial resolution for a detailed risk assessment. While LEO satellites provide better spatial resolution, but low temporal resolution to monitor rapid wildfire spread. Existing downscaling models have demonstrated their effectiveness in producing high-resolution remote sensing data. But many still fail to capture the fine details and physically plausible outputs. This project aims to achieve a high-resolution spatial downscaling of wildfire data by integrating additional physical covariates to the model to mitigate implausible outputs. The project explores direct (2km to 30m) and cascaded (2km to 375m to 30m) downscaling pipelines and their effectiveness in producing high-resolution wildfire data. The project compares diffusion (EDiffSR), attention U-Net (HAUNet), and transformer-based (ESTNet) downscaling models.
+With climate change, there's an increasing need for a higher-resolution wildfire data for better monitoring and risk assessment. GEO satellites have high-temporal resolution, but lacks spatial resolution for a detailed risk assessment. While LEO satellites provide better spatial resolution, but low temporal resolution to monitor rapid wildfire spread. Existing downscaling models have demonstrated their effectiveness in producing high-resolution remote sensing data. But many still fail to capture the fine details and physically plausible outputs. This project aims to achieve a high-resolution spatial downscaling of wildfire data by integrating additional physical covariates to the model to mitigate implausible outputs. The project explores direct (2km to 30m) and cascaded (2km to 375m to 30m) downscaling pipelines and their effectiveness in producing high-resolution wildfire data. The project compares effectiveness of hybrid attention U-Net (HAUNet) as wildfire downscaling model.
 
 \end{abstract}
 
@@ -114,9 +114,9 @@ High-spatial and high-temporal resolution wildfire data is favourable in risk as
 To bridge this gap, existing methods uses Deep Learning (DL) models for downscaling due to their ability in recognising non-linear spatiotemporal patterns. However, the resolution gap between GEO and LEO is significant (2km - 30m). This increases the risk of producing physically implausible or unrealistic outputs, as a single low-resolution (LR) pixel can correspond to different high-resolution (HR) details (\cite{wangDeepLearningImage2020}). In this project, to mitigate this limitation, the model integrates additional physical information, such as HR topography and landcover to help guide the downscaling process. To further improve downscaling, the project aims to investigate whether cascaded downscaling (2km to 375m to 30m) produces more accurate and better results compared to direct downscaling (2km to 30m). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate error caused by the large resolution difference. This project will compare the cascaded and direct pipeline performance of different downscaling architectures, including hybrid attention U-Net.
 
 \section{Current State of Remote Sensing Downscaling}
-Traditional downscaling methods often fail to capture the complex non-linear patterns and variability in remote sensing data. Recently, Deep learning methods have shown to consistently outperformed these approaches (\cite{sdrakaDeepLearningDownscaling2022}). CNN and U-Net architectures have been widely used for their ability to capture spatial features. While GAN-based methods have been used where sharpness is prioritised over pixel-wise accuracy. More recently, transformer-based models use long-range attention to capture dependencies beyond a convolution's receptive field (\cite{wangVGGTVisualGeometry2025}), and diffusion-based approaches have showed strong generative ability (\cite{wangSinSRDiffusionBasedImage2023}).
+Traditional downscaling methods often fail to capture the complex non-linear patterns in remote sensing data. Recently, Deep learning methods have shown to outperform these approaches (\cite{sdrakaDeepLearningDownscaling2022}). CNN and U-Net architectures have been widely used for their ability to capture spatial features. While GAN-based methods have been used where sharpness is prioritised over pixel-wise accuracy. More recently, transformer-based models use long-range attention to capture dependencies beyond a convolution's receptive field (\cite{wangVGGTVisualGeometry2025}), and diffusion-based approaches have showed strong generative ability (\cite{wangSinSRDiffusionBasedImage2023}).
 
-However, many super-resolution architectures are optimised for texture-rich images. They are not well-suited to the distinct structure of active wildfire data where the target is very sparse. This creates two challenges: severe class imbalance, which biases pixel-wise reconstruction losses and convolutional decoders (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping, where a single low-resolution pixel have many possible high-resolution configurations. Architectures are needed that can both preserve rare, high-magnitude signal against a dominant background class and recover geometrically coherent fire-front structure.
+However, many downscalingarchitectures are optimised for texture-rich images. They are not well-suited to the distinct structure of active wildfire data where the target is very sparse. This creates two challenges: severe class imbalance, which biases pixel-wise reconstruction losses and convolutional decoders (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping, where a single low-resolution pixel have many possible high-resolution configurations. Architectures are needed that can both preserve fire signal against a dominant background and recover coherent fire-front structure.
 
 Existing literature is dominated by direct downscaling across the full resolution gap. Cascaded approaches exist e.g. AMCN-Geoi-DBN (\cite{jingCascadedDownscalingCalibration2022}) and CLIT (\cite{chenCascadedLocalImplicit2023}) but no prior work evaluates cascaded downscaling for wildfire detection, nor explores the trade-off between the reduced per-stage resolution gap and the accumulation of error across stages. The objectives are:
 
@@ -217,6 +217,38 @@ The main encoder-decoder path produces low-resolution feature representations ($
     \label{fig:haunet}
 \end{figure}
 
+\subsection{Loss Functions}
+\subsubsection{Focal Dice Loss}
+Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss is used. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss, which optimises for spatial region overlap:
+
+\begin{equation}\label{eq:focaldiceloss}
+    \mathcal{L}_{\text{FD}} = w_f \cdot \mathcal{L}_{\text{focal}} + w_d \cdot \mathcal{L}_{\text{dice}}
+\end{equation}
+where $w_f$ and $w_d$ are weights of the losses.
+
+Focal Loss (\cite{linFocalLossDense2018}) applies $(1 - p_t)^\gamma$ to focus training on hard negative and sparse positives:
+\begin{equation}\label{eq:focal_loss}
+    \mathcal{L}_{\text{focal}} = -\alpha_t (1 - p_t)^\gamma \log(p_t)
+\end{equation}
+where $p_t$ and $\alpha_t$ depend on the ground truth label $y_{i,j} \in \{0, 1\}$ and predicted probability $p_{i,j} = \sigma(\hat{y}_{i,j})$:
+\begin{equation}
+    p_t = \begin{cases} 
+    p_{i,j} & \text{if } y_{i,j} = 1 \\ 
+    1 - p_{i,j} & \text{if } y_{i,j} = 0 
+    \end{cases}, \quad 
+    \alpha_t = \begin{cases} 
+    \alpha & \text{if } y_{i,j} = 1 \\ 
+    1 - \alpha & \text{if } y_{i,j} = 0 
+    \end{cases}
+\end{equation}
+$\alpha \in [0, 1]$ balances positive and negative pixel contributions, and $\gamma \ge 0$ controls the rate at which pixels are down-weighted.
+
+Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spatial overlap:
+\begin{equation}\label{eq:dice_loss}
+    \mathcal{L}_{\text{dice}} = 1 - \frac{2 \sum_{i,j} p_{i,j} y_{i,j} + \epsilon}{\sum_{i,j} p_{i,j} + \sum_{i,j} y_{i,j} + \epsilon}
+\end{equation}
+where $\epsilon$ is a smoothing term preventing division by zero.
+
 \subsection{Evaluation Metrics}
 \begin{itemize}
     \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks:
@@ -244,11 +276,14 @@ The main encoder-decoder path produces low-resolution feature representations ($
     where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
 \end{itemize}
 
+The best model training checkpoint for final evaluation is selected based on the highest validation AUPRC because it is robust to class imbalance and is threshold-independent.
+
 \section{Results}
 
 \section{Discussions} \label{sec:discussion}
 
 \section{Conclusions}
+Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes.
 
 \printbibliography
 
