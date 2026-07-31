@@ -570,23 +570,24 @@ def main():
     log_postprocessed = bool(eval_cfg.get("log_postprocessed", False))
     postprocess_cfg = cfg.get("postprocess", {})
 
-    # Which logged metric decides "best.pt", and whether higher or lower is better.
-    best_metric = cfg.get("checkpointing", {}).get("best_metric", "val_iou")
-    if best_metric not in HIGHER_IS_BETTER:
-        raise ValueError(
-            f"Unknown checkpointing.best_metric '{best_metric}'. "
-            f"Choose from: {sorted(HIGHER_IS_BETTER)}."
-        )
-    best_is_higher = HIGHER_IS_BETTER[best_metric]
-    print(f"  Best-checkpoint metric: {best_metric} "
-          f"({'higher' if best_is_higher else 'lower'} is better)")
+    # Which logged metric(s) decide "best_<metric>.pt", and whether higher or lower is better.
+    best_metric_cfg = cfg.get("checkpointing", {}).get("best_metric", "val_iou")
+    best_metrics = [best_metric_cfg] if isinstance(best_metric_cfg, str) else list(best_metric_cfg)
+    for m in best_metrics:
+        if m not in HIGHER_IS_BETTER:
+            raise ValueError(
+                f"Unknown checkpointing.best_metric '{m}'. "
+                f"Choose from: {sorted(HIGHER_IS_BETTER)}."
+            )
+    print(f"  Best-checkpoint metric(s): " +
+          ", ".join(f"{m} ({'higher' if HIGHER_IS_BETTER[m] else 'lower'} is better)" for m in best_metrics))
 
 
     # ------------------------------------------------------------------
     # Resume
     # ------------------------------------------------------------------
     start_epoch = 1
-    best_score  = float("-inf") if best_is_higher else float("inf")
+    best_scores = {m: (float("-inf") if HIGHER_IS_BETTER[m] else float("inf")) for m in best_metrics}
  
     if args.resume:
         print(f"\nResuming from {args.resume}...")
@@ -603,9 +604,18 @@ def main():
         optimiser.load_state_dict(ckpt["optimiser"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
-        # Backward-compatible with older checkpoints that only stored best_iou.
-        best_score = ckpt.get("best_score", ckpt.get("best_iou", best_score))
-        print(f"  Resumed at epoch {start_epoch}, best_{best_metric}={best_score:.4f}")
+        # Backward-compatible with older checkpoints (single best_score/best_metric, or even older best_iou).
+        ckpt_best_scores = ckpt.get("best_scores")
+        if ckpt_best_scores:
+            for m in best_metrics:
+                if m in ckpt_best_scores:
+                    best_scores[m] = ckpt_best_scores[m]
+        elif "best_score" in ckpt or "best_iou" in ckpt:
+            legacy_metric = ckpt.get("best_metric", "val_iou")
+            legacy_score = ckpt.get("best_score", ckpt.get("best_iou"))
+            if legacy_metric in best_scores:
+                best_scores[legacy_metric] = legacy_score
+        print(f"  Resumed at epoch {start_epoch}, best_scores={best_scores}")
 
     # ------------------------------------------------------------------
     # Training Loop
@@ -666,22 +676,24 @@ def main():
                       f"pp_prec={pp_metrics['pp_precision']:.4f} pp_rec={pp_metrics['pp_recall']:.4f}",
                       flush=True)
  
-            current_score = val_metrics[best_metric]
-            is_best = (current_score > best_score) if best_is_higher else (current_score < best_score)
-            if is_best:
-                best_score = current_score
-                best_path = str(ckpt_dir / "best.pt")
-                torch.save({
-                    "epoch":      epoch,
-                    "model":      model.state_dict(),
-                    "optimiser":  optimiser.state_dict(),
-                    "scheduler":  scheduler.state_dict(),
-                    "best_score": best_score,
-                    "best_metric": best_metric,
-                    "config":     cfg,
-                }, best_path)
-                upload_checkpoint(gcs_bucket, best_path, gcs_ckpt_prefix)
-                print(f"  ★ New best {best_metric}={best_score:.4f} — saved best.pt")
+            for m in best_metrics:
+                current_score = val_metrics[m]
+                m_is_higher = HIGHER_IS_BETTER[m]
+                is_best = (current_score > best_scores[m]) if m_is_higher else (current_score < best_scores[m])
+                if is_best:
+                    best_scores[m] = current_score
+                    best_path = str(ckpt_dir / f"best_{m}.pt")
+                    torch.save({
+                        "epoch":       epoch,
+                        "model":       model.state_dict(),
+                        "optimiser":   optimiser.state_dict(),
+                        "scheduler":   scheduler.state_dict(),
+                        "best_scores": best_scores,
+                        "best_metric": m,
+                        "config":      cfg,
+                    }, best_path)
+                    upload_checkpoint(gcs_bucket, best_path, gcs_ckpt_prefix)
+                    print(f"  ★ New best {m}={best_scores[m]:.4f} — saved best_{m}.pt")
  
             print(
                 f"  [Epoch {epoch:3d}] "
@@ -734,7 +746,8 @@ def main():
             upload_checkpoint(gcs_bucket, ckpt_path, gcs_ckpt_prefix)
             prune_old_checkpoints(gcs_bucket, gcs_ckpt_prefix, keep_last)
  
-    print(f"\nTraining complete. Best {best_metric}: {best_score:.4f}")
+    print(f"\nTraining complete. Best scores: " +
+          ", ".join(f"{m}={best_scores[m]:.4f}" for m in best_metrics))
     if use_wandb:
         import wandb
         wandb.finish()

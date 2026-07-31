@@ -28,7 +28,7 @@ import importlib
 sys.path.append(str(Path(__file__).parent))
 from data.wildfire_dataset import WildfireDataset, load_split_ids
 from metrics import (
-    compute_iou, compute_ipsnr, compute_boundary_f1,
+    compute_iou, compute_soft_iou, compute_ipsnr, compute_boundary_f1,
     compute_precision_recall, compute_auprc, compute_centroid_distance,
 )
 from utils.postprocess import postprocess_prediction
@@ -183,7 +183,7 @@ def main():
     use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
     test_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=test_ids,
-        dilate_target=dilate_target, heatmap_target=heatmap_target,
+        dilate_target=False, heatmap_target=False,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         dem_mean=cfg["data"].get("dem_mean"),
