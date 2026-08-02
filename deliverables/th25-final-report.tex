@@ -136,7 +136,13 @@ The data was processed so that all regions of interest (ROIs) are dynamically re
     \label{eq:tfi}
 \end{equation}
 
-The dataset is split into training/validation/testing (80/10/10). This split utilises stratified random sampling across four quantile bins based on the active fire pixel count per patch ofr balanced representation of fire sizes.
+The dataset is split into training/validation/testing (80/10/10). This split utilises stratified random sampling across four quantile bins based on the active fire pixel count per patch for balanced representation of fire sizes. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
+
+\begin{equation}\label{eq:weighted_sampling}
+    w_i = \max(n_i, 1)
+\end{equation}
+
+where $n_i$ is extracted from the patch metadata manifests.
 
 Inputs are scaled prior to model ingestion. The GOES channels undergo Z-score standardisation using mean and standard deviation parameters precomputed exclusively from the training split.
 
@@ -219,18 +225,18 @@ The main encoder-decoder path produces low-resolution feature representations ($
 
 \subsection{Loss Functions}
 \subsubsection{Focal Dice Loss}
-Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss is used. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss, which optimises for spatial region overlap:
+Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss was used. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss, which optimises for spatial region overlap:
 
 \begin{equation}\label{eq:focaldiceloss}
     \mathcal{L}_{\text{FD}} = w_f \cdot \mathcal{L}_{\text{focal}} + w_d \cdot \mathcal{L}_{\text{dice}}
 \end{equation}
 where $w_f$ and $w_d$ are weights of the losses.
 
-Focal Loss (\cite{linFocalLossDense2018}) applies $(1 - p_t)^\gamma$ to focus training on hard negative and sparse positives:
+Focal Loss (\cite{linFocalLossDense2018}) applies $(1 - p_t)^\gamma$ to focus training on sparse positives:
 \begin{equation}\label{eq:focal_loss}
     \mathcal{L}_{\text{focal}} = -\alpha_t (1 - p_t)^\gamma \log(p_t)
 \end{equation}
-where $p_t$ and $\alpha_t$ depend on the ground truth label $y_{i,j} \in \{0, 1\}$ and predicted probability $p_{i,j} = \sigma(\hat{y}_{i,j})$:
+where $\alpha_t$ is the balancing factor, $p_t$ is the predicted probability for the ground-truth class, and $p_{i,j} = P(y_{i,j}=1)$ is the estimated probability for the positive class. For a ground-truth label $y_{i,j} \in \{0, 1\}$:
 \begin{equation}
     p_t = \begin{cases} 
     p_{i,j} & \text{if } y_{i,j} = 1 \\ 

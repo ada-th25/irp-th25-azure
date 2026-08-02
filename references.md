@@ -324,3 +324,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Generate draft section for draft README file, including Quickstart.
     * **Prompt:** (pasting existing draft README) "Add suggested section for repository README"
     * **Human Modification:** Replace placeholders with my repo/project info.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 31/07/2026
+    * **Scope:** Change `src/train.py` so that it saves best checkpoint based on multiple metrics.
+    * **Prompt:** (pasting train script) "Change this code so that I can choose more than one metric to keep the 'best'. For example, if I want to checkpoint ones where either auprc or soft_iou is better, it saves it as best_auprc or best_soft_iou etc"
