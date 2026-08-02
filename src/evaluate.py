@@ -181,6 +181,7 @@ def main():
     print(f"Loaded {len(test_ids)} '{args.split}' sample ids.")
 
     use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
+    stage1_pred_key = cfg["data"].get("stage1_pred_key", "stage1_pred")
     test_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=test_ids,
         dilate_target=False, heatmap_target=False,
@@ -189,12 +190,18 @@ def main():
         dem_mean=cfg["data"].get("dem_mean"),
         dem_std=cfg["data"].get("dem_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
-        use_stage1_pred=use_stage1_pred, augment=False,
+        use_stage1_pred=use_stage1_pred, stage1_pred_key=stage1_pred_key, augment=False,
     )
     # batch_size=1 so each forward pass corresponds to exactly one sample_id
     test_loader = DataLoader(test_ds, batch_size=1, shuffle=False,
                              num_workers=cfg["data"]["num_workers"])
     print(f"Test dataset: {len(test_ds)} samples.")
+    if len(test_ds) == 0:
+        raise RuntimeError(
+            f"Test dataset is empty after filtering: check stage1_pred_key "
+            f"('{stage1_pred_key}') matches the manifest paths, or that "
+            f"'{args.split}' samples actually have that key populated."
+        )
 
     # ------------------------------------------------------------------
     # Model
@@ -223,7 +230,8 @@ def main():
 
     ckpt_epoch = ckpt.get("epoch", "?")
     ckpt_best_metric = ckpt.get("best_metric", "?")
-    ckpt_best_score = ckpt.get("best_score", "?")
+    ckpt_best_scores = ckpt.get("best_scores", {})
+    ckpt_best_score = ckpt_best_scores.get(ckpt_best_metric, ckpt.get("best_score", "?"))
     print(f"  Checkpoint from epoch {ckpt_epoch} "
           f"({ckpt_best_metric}={ckpt_best_score})")
 

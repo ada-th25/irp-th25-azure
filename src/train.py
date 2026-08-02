@@ -463,26 +463,13 @@ def main():
     print(f"\nLoading data splits from GCS (splits_dir='{splits_dir}')...")
     train_ids = load_split_ids(bucket_name, branch, "train", prefix, splits_dir)
     val_ids = load_split_ids(bucket_name, branch, "val",   prefix, splits_dir)
-
-    # ------------------------------------------------------------------
-    # Weighted sampler (optional, config-driven)
-    # ------------------------------------------------------------------
-    use_weighted_sampler = cfg["training"].get("use_weighted_sampler", False)
-    train_sampler = None
-    if use_weighted_sampler:
-        print("\nBuilding weighted sampler from manifest positive-pixel counts...")
-        pos_counts = load_positive_pixel_counts(gcs_bucket, branch, train_ids, prefix)
-        weights = [max(pos_counts.get(sid, 1), 1) for sid in train_ids]
-        train_sampler = torch.utils.data.WeightedRandomSampler(
-            weights, num_samples=len(train_ids), replacement=True
-        )
-        print(f"  Weighted sampler built ({len(weights)} samples).")
  
     # ------------------------------------------------------------------
     # Datasets and Loaders
     # ------------------------------------------------------------------
     print("\nBuilding datasets...")
     use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
+    stage1_pred_key = cfg["data"].get("stage1_pred_key", "stage1_pred")
 
     train_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=train_ids,
@@ -492,8 +479,22 @@ def main():
         dem_mean=cfg["data"].get("dem_mean"),
         dem_std=cfg["data"].get("dem_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
-        use_stage1_pred=use_stage1_pred, augment=True
+        use_stage1_pred=use_stage1_pred, stage1_pred_key=stage1_pred_key, augment=True
     )
+
+    # Weighted sampler (optional, config-driven)
+    use_weighted_sampler = cfg["training"].get("use_weighted_sampler", False)
+    train_sampler = None
+    if use_weighted_sampler:
+        print("\nBuilding weighted sampler from manifest positive-pixel counts...")
+        sample_ids = [m["id"] for m in train_ds.samples]   # post-filtering, matches train_ds indices
+        pos_counts = load_positive_pixel_counts(gcs_bucket, branch, sample_ids, prefix)
+        weights = [max(pos_counts.get(sid, 1), 1) for sid in sample_ids]
+        train_sampler = torch.utils.data.WeightedRandomSampler(
+            weights, num_samples=len(sample_ids), replacement=True
+        )
+        print(f"  Weighted sampler built ({len(weights)} samples, matches filtered dataset size).")
+    
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids,
         dilate_target=False, heatmap_target=False,
@@ -502,7 +503,7 @@ def main():
         dem_mean=cfg["data"].get("dem_mean"),
         dem_std=cfg["data"].get("dem_std"),
         heatmap_sigma=cfg["data"].get("heatmap_sigma", 0.6),
-        use_stage1_pred=use_stage1_pred, augment=False
+        use_stage1_pred=use_stage1_pred, stage1_pred_key=stage1_pred_key, augment=False
     )
     
     train_loader = DataLoader(

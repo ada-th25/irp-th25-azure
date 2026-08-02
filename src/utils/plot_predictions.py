@@ -91,6 +91,7 @@ def build_model(cfg: dict, config_path: str) -> torch.nn.Module:
     return make_haunet_model(
         goes_channels=cfg["data"]["goes_channels"],
         cov_channels=cfg["data"]["cov_channels"],
+        stage1_channels=cfg["data"].get("stage1_channels", 0),
     )
 
 
@@ -121,6 +122,8 @@ def main():
             bucket_name, prefix, branch, split_ids=ids,
             goes_mean=cfg["data"].get("goes_mean"),
             goes_std=cfg["data"].get("goes_std"),
+            use_stage1_pred=cfg["data"].get("use_stage1_pred", False),
+            stage1_pred_key=cfg["data"].get("stage1_pred_key", "stage1_pred"),
         )
 
     n = min(args.n_samples, len(ds))
@@ -141,6 +144,13 @@ def main():
     target = batch["target"].to(device)
     goes = batch["goes"]
     cov = batch["covariates"]
+
+    use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
+    stage1_pred_np = None
+    if use_stage1_pred:
+        # input channel layout in WildfireDataset.__getitem__: [goes_up, stage1_pred(if enabled), cov]
+        goes_ch = cfg["data"]["goes_channels"]
+        stage1_pred_np = inp[:, goes_ch:goes_ch+1].cpu().numpy()  # (B, 1, H, W)
 
     with timed("build model"):
         model = build_model(cfg, args.config).to(device)
@@ -171,11 +181,14 @@ def main():
                     min_component_size=args.pp_min_component_size,
                 )
 
-    n_cols = 8 if args.show_postprocessed else 7
-    col_titles = ["GOES C07", "GOES C14", "GOES TFI", "DEM (cov[0])",
-                  "Land cover (cov[1])", "True target", "Predicted P(fire)"]
+    base_titles = ["GOES C07", "GOES C14", "GOES TFI", "DEM (cov[0])", "Land cover (cov[1])"]
+    if use_stage1_pred:
+        base_titles.append("Stage1 P(fire) input")
+    base_titles += ["True target", "Predicted P(fire)"]
+    col_titles = list(base_titles)
     if args.show_postprocessed:
         col_titles.append("Post-processed mask")
+    n_cols = len(col_titles)
 
     with timed("plot + save figure"):
         fig, axes = plt.subplots(n, n_cols, figsize=(3.2 * n_cols, 3 * n))
@@ -188,16 +201,15 @@ def main():
             target_np = target[row, 0].cpu().numpy()
             prob_np = probs[row, 0].cpu().numpy()
 
-            panels = [
-                goes_np[0], goes_np[1], goes_np[2],
-                cov_np[0], cov_np[1],
-                target_np, prob_np,
-            ]
+            panels = [goes_np[0], goes_np[1], goes_np[2], cov_np[0], cov_np[1]]
+            cmaps = ["inferno", "inferno", "inferno", "terrain", "tab20"]
+            if use_stage1_pred:
+                panels.append(stage1_pred_np[row, 0])
+                cmaps.append("hot")
+            panels += [target_np, prob_np]
+            cmaps += ["hot", "hot"]
             if args.show_postprocessed:
                 panels.append(pp_mask[row, 0].cpu().numpy())
-
-            cmaps = ["inferno", "inferno", "inferno", "terrain", "tab20", "hot", "hot"]
-            if args.show_postprocessed:
                 cmaps.append("gray")
 
             for col in range(n_cols):
@@ -205,7 +217,7 @@ def main():
                 im = ax.imshow(panels[col], cmap=cmaps[col])
                 
                 # Add colorbar specifically for target and prediction to show value ranges
-                if col_titles[col] in ["True target", "Predicted P(fire)"]:
+                if col_titles[col] in ["True target", "Predicted P(fire)", "Stage1 P(fire) input"]:
                     im.set_clim(0.0, 1.0)  # Pin range to [0, 1] for probability scale
                     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
                     cbar.ax.tick_params(labelsize=8)
