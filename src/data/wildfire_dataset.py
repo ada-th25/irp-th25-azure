@@ -65,13 +65,13 @@ class WildfireDataset(Dataset):
         Landsat branch:
             goes       -> (3, 4, 4)     native GOES context (context_ratio=1)
             goes_up    -> (3, 256, 256) upsampled for concatenation
-            covariates -> (12, 256, 256) native (30m)
+            covariates -> (11, 256, 256) native (30m)
             target     -> (1, 256, 256) untouched fire patch
  
         VIIRS branch (stage 1 -- full-res input, native-res output):
             goes       -> (3, 4, 4)     native GOES context
             goes_up    -> (3, 256, 256) upsampled for concatenation
-            covariates -> (2, 256, 256) native (30m), UNCHANGED -- model
+            covariates -> (11, 256, 256) native (30m), UNCHANGED -- model
                                         input keeps full spatial detail
             target     -> (1, 20, 20)   native VIIRS grid, no resize needed
                                         (binarized from raw FRP)

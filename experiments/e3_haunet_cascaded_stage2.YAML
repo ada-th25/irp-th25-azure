@@ -1,0 +1,63 @@
+# experiments/e3_haunet_cascaded_stage2.yaml
+# ===================================
+# Stage 2 of the cascaded pipeline (VIIRS-pred -> Landsat), HAUNet.
+experiment:
+  name: e3_haunet_cascaded_stage2_focal_dice_v1
+  branch: landsat
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits
+  goes_mean: [304.41929302202146, 295.34150143596486, 9.077791586056561]
+  goes_std: [13.706893469524932, 10.664054013234717, 7.4233895594608095]
+  dem_mean: [0.3390881556710402]
+  dem_std: [0.5048759609237181]
+  heatmap_target: false
+  dilate_target: false
+  goes_channels: 3
+  cov_channels: 11
+  num_workers: 4
+  use_stage1_pred: true
+  stage1_pred_key: stage1_pred_v2
+  stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
+                            #     and concatenated as 1 extra input channel
+model:
+  name: haunet
+  drop_out_rate: 0.1
+training:
+  batch_size: 2
+  grad_accum_steps: 4
+  epochs: 20
+  learning_rate: 1.0e-4
+  min_lr: 1.0e-6
+  weight_decay: 5.0e-4
+  grad_clip: 2.0
+  val_every_n_epochs: 1
+  save_every_n_epochs: 3
+  use_weighted_sampler: true
+evaluation:
+  threshold: 0.5
+  low_threshold: 0.3
+  compute_ipsnr: true
+  pixel_size_m: 30.0        # Landsat, not VIIRS's 384.0
+  log_postprocessed: false
+postprocess:
+  method: percentile
+  percentile: 99.5
+  fixed_threshold: 0.5
+  min_component_size: 4
+checkpointing:
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e3_haunet_cascaded_stage2_focal_dice_v1
+  keep_last_n: 1
+  best_metric: [val_auprc, val_soft_iou]
+logging:
+  log_dir: logs
+  use_wandb: false
+loss:
+  type: focal_dice
+  alpha: 0.85
+  gamma: 1.5
+  focal_weight: 1.0
+  dice_weight: 1.0
+  smooth: 0.001
