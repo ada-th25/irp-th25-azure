@@ -2,7 +2,7 @@
 # ===================================
 # Stage 1 of the cascaded pipeline (GOES -> VIIRS), HAUNet, focal_dice loss.
 experiment:
-  name: e2_haunet_cascaded_stage1_focal_dice_v2
+  name: e2_haunet_cascaded_stage1_focal_dice
   branch: viirs
 
 data:
@@ -10,10 +10,10 @@ data:
   output_prefix: processed_dataset_gcp
   splits_dir: splits              # <- full 80/10/10 split, not the smoke-test subset
   heatmap_sigma: 1.2              # unused when heatmap_target: false, harmless to leave
-  goes_mean: [304.41929302202146, 295.34150143596486, 9.077791586056561] # GOES stats calculated only from the train dataset
-  goes_std: [13.706893469524932, 10.664054013234717, 7.4233895594608095]
-  dem_mean: [0.3390881556710402]
-  dem_std: [0.5048759609237181]
+  goes_mean: [304.52951863959134, 295.51011064894595, 8.995863380755512] # GOES stats calculated only from the train dataset
+  goes_std: [13.284006695532215, 10.658734628311198, 7.259822851148196]
+  dem_mean: [0.36452374771643253]
+  dem_std: [0.5169181929171535]
   heatmap_target: false           # focal_dice expects a binary {0,1} target
   dilate_target: false            # consider true if fire pixels are too sparse for Dice to get gradient signal
   goes_channels: 3
