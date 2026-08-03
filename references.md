@@ -329,3 +329,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 31/07/2026
     * **Scope:** Change `src/train.py` so that it saves best checkpoint based on multiple metrics.
     * **Prompt:** (pasting train script) "Change this code so that I can choose more than one metric to keep the 'best'. For example, if I want to checkpoint ones where either auprc or soft_iou is better, it saves it as best_auprc or best_soft_iou etc"
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 03/08/2026
+    * **Scope:** Add a function in `src/evaluate` to add a baseline metric for all-zero prediction and also for prevalence-rate cases so it can be compared against my model metrics.
+    * **Prompt:** (pasting evaluation script) "Add a function so that it calculates all the metrics in the evaluation loop so that it also calculates the all-zero prediction and also prevalence-rate cases so it can be comapred against my main results."

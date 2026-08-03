@@ -144,9 +144,11 @@ The dataset is split into training/validation/testing (80/10/10). This split uti
 
 where $n_i$ is extracted from the patch metadata manifests.
 
-Inputs are scaled prior to model ingestion. The GOES channels undergo Z-score standardisation using mean and standard deviation parameters precomputed exclusively from the training split.
+Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation parameters precomputed exclusively from the training split. DEM covariates were normalised by dividing by $1000$ (converting to km). The landcover data is also one-hot encoded into 11 channels, each representing a landcover class.
 
-For the targets, the continuous VIIRS FRP values are binarised into active fire masks. Depending on the experimental configuration, thes are subsequently transformed using either spatial dilation via a $3 \times 3$ max pooling operation or conversion into continuous Gaussian heatmaps.
+For the targets, the continuous VIIRS FRP values are binarised into active fire masks. Landsat targets are already binarised. Depending on the experimental configuration, thes are subsequently transformed using either spatial dilation via a $3 \times 3$ max pooling operation or conversion into continuous Gaussian heatmaps.
+
+Measured on the held-out test split, the fire-pixel prevalence was $0.008\%$ (VIIRS) / $X\%$ (Landsat), confirming the extreme class imbalance
 
 \begin{table}[htbp]
 \centering
@@ -159,7 +161,7 @@ For the targets, the continuous VIIRS FRP values are binarised into active fire 
 \textbf{VIIRS S-NPP} & 375 m & Intermediate Target / Input in Cascaded Pipeline & I4 (3.74 $\mu$m, Active Fire) & Active fire detection product (NASA FIRMS) in Fire Radiative Power (FRP) used for cascaded downscaling. \\ \hline
 \textbf{GOES-16/17 (ABI)} & 2000 m & Coarse Fire Input & Ch. 7 (3.9 $\mu$m),\newline Ch. 14 (11.2 $\mu$m) & High-temporal-frequency geostationary data in Brightness Temperature (BT). \\ \hline
 \textbf{Copernicus DEM} & 30 m & Covariate (Static) & DEM & Digital Elevation Model to capture terrain effects on fire spread. \\ \hline
-\textbf{ESA WorldCover} & 10 m & Covariate (Static) & All Landcover types & Landcover maps. \\ \hline
+\textbf{ESA WorldCover} & 10 m & Covariate (Static) & All Landcover types (11) & Landcover maps. \\ \hline
 \end{tabularx}
 \end{table}
 
@@ -255,6 +257,14 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 \end{equation}
 where $\epsilon$ is a smoothing term preventing division by zero.
 
+\subsection{Experimental Design}
+To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assessed under the following ablations, in addition to the primary direct-vs-cascaded pipeline comparison:
+\begin{enumerate}
+    \item with and without the Covariate Pyramid Encoder
+    \item with and without DEM as an input covariate
+    \item with and without land cover as an input covariate.
+\end{enumerate}
+
 \subsection{Evaluation Metrics}
 \begin{itemize}
     \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks:
@@ -282,7 +292,13 @@ where $\epsilon$ is a smoothing term preventing division by zero.
     where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
 \end{itemize}
 
-The best model training checkpoint for final evaluation is selected based on the highest validation AUPRC because it is robust to class imbalance and is threshold-independent.
+Due to the extreme rarity of the positive class, absolute metric values are difficult to interpret without a reference point. The following baselines were used:
+\begin{enumerate}
+    \item an all-background predictor, assigning zero probability to every pixel.
+    \item a constant-prevalence predictor, assigning every pixel the measured test-set fire-pixel prevalence.
+\end{enumerate}
+
+$2.$ is the theoretically expected value of AUPRC under a classifier with no spatial discriminative ability, since a scorer that assigns identical scores to every pixel yields precision equal to prevalence at every recall level. Model performance is reported alongside both baselines.
 
 \section{Results}
 
