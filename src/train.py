@@ -1,5 +1,5 @@
 """
-Usage example: python src/train.py --config experiments/e2_haunet_cascaded_stage1_test.YAML
+Usage example: python src/train.py --config experiments/e2_haunet_cascaded_stage1.YAML
 """
 
 import argparse
@@ -536,6 +536,7 @@ def main():
         cov_channels = cfg["data"]["cov_channels"],
         stage1_channels = cfg["data"].get("stage1_channels", 0),
         prior_fire_fraction = cfg["model"].get("prior_fire_fraction", 0.0085),
+        use_cov_pyramid = cfg["model"].get("use_cov_pyramid", True),
     ).to(device)
     
     n_params = sum(p.numel() for p in model.parameters())

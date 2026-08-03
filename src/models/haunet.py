@@ -15,7 +15,8 @@ def set_reflect_padding(model):
     return model
 
 def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
-               cov_refine_channels=32, cov_window_size=8, prior_fire_fraction=0.0085, stage1_channels=0, drop_out_rate=0.0):
+               cov_refine_channels=32, cov_window_size=8, prior_fire_fraction=0.0085, stage1_channels=0, drop_out_rate=0.0,
+              use_cov_pyramid=True):
     """
     Factory function for the wildfire-adapted HAUNet.
  
@@ -53,6 +54,7 @@ def make_model(goes_channels=3, cov_channels=2, downscale_factor=4,
         cov_window_size=cov_window_size,
         prior_fire_fraction=prior_fire_fraction,
         drop_out_rate=drop_out_rate,
+        use_cov_pyramid=use_cov_pyramid,
     )
     return set_reflect_padding(model)
 
@@ -592,6 +594,7 @@ class HAUNet(nn.Module):
         cov_window_size = 8,
         prior_fire_fraction = 0.0085,
         drop_out_rate = 0.0,
+        use_cov_pyramid=True,
     ):
         super().__init__()
 
@@ -602,6 +605,7 @@ class HAUNet(nn.Module):
         self.cov_channels = cov_channels
         self.downscale_factor = downscale_factor
         self.n_refine_stages = int(math.log2(downscale_factor)) if downscale_factor > 1 else 0
+        self.use_cov_pyramid = use_cov_pyramid
  
         in_channels = goes_channels + cov_channels
  
@@ -657,27 +661,38 @@ class HAUNet(nn.Module):
         self.dec_blk_nums = dec_blk_nums
         self.padder_size  = 2 ** len(self.encoders)
 
-        self.cov_pyramid = CovariatePyramidEncoder(
-            cov_channels=cov_channels,
-            refine_channels=cov_refine_channels,
-            n_stages=max(0, self.n_refine_stages - 1),#n_stages=self.n_refine_stages,
-            window_size=cov_window_size,
-        )
+        if self.use_cov_pyramid:
+            self.cov_pyramid = CovariatePyramidEncoder(
+                cov_channels=cov_channels,
+                refine_channels=cov_refine_channels,
+                n_stages=max(0, self.n_refine_stages - 1),
+                window_size=cov_window_size,
+            )
 
-        self.refine_ups = nn.ModuleList([
-            nn.Sequential(
-                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
-                nn.Conv2d(width, width, kernel_size=3, padding=1)
-            )
-            for _ in range(self.n_refine_stages)
-        ])
-        self.refine_fuse = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(width + cov_refine_channels, width, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-            )
-            for _ in range(self.n_refine_stages)
-        ])
+            self.refine_ups = nn.ModuleList([
+                nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                    nn.Conv2d(width, width, kernel_size=3, padding=1)
+                )
+                for _ in range(self.n_refine_stages)
+            ])
+            self.refine_fuse = nn.ModuleList([
+                nn.Sequential(
+                    nn.Conv2d(width + cov_refine_channels, width, kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True),
+                )
+                for _ in range(self.n_refine_stages)
+            ])
+        else:
+            # Still need to get from low-res x back up to full res,
+            # plain upsampling, no covariate fusion.
+            self.refine_ups = nn.ModuleList([
+                nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                    nn.Conv2d(width, width, kernel_size=3, padding=1)
+                )
+                for _ in range(self.n_refine_stages)
+            ])
 
         self.output_head = nn.Conv2d(
             in_channels=width,
@@ -685,6 +700,9 @@ class HAUNet(nn.Module):
             kernel_size=3, padding=1, stride=1, bias=True
         )
 
+        # the output head's convolution bias was initialised to the logit of the measured training-set fire-pixel prevalence
+        # rather than the default near-zero initialisation
+        #This ensures the untrained model's initial predictions already reflect the correct base rate 
         prior_logit = math.log(prior_fire_fraction / (1 - prior_fire_fraction))
         nn.init.constant_(self.output_head.bias, prior_logit)
  
@@ -731,17 +749,19 @@ class HAUNet(nn.Module):
  
         x = x[:, :, :low_h, :low_w]   # crop back to unpadded low-res size
 
-        # feats[0] = full res (H, W); feats[-1] = low-res (~low_h, low_w)
-        cov_feats = self.cov_pyramid(cov)
-
         # Progressive coarse-to-fine refinement, fusing covariates at each scale
-        for i in range(self.n_refine_stages):
-            x = self.refine_ups[i](x)                              # upsample by 2x
-            cov_feat = cov_feats[self.n_refine_stages - 1 - i]      # matching scale, coarse->fine
-            if x.shape[-2:] != cov_feat.shape[-2:]:
-                x = F.interpolate(x, size=cov_feat.shape[-2:], mode='bilinear', align_corners=False)
-            x = torch.cat([x, cov_feat], dim=1)
-            x = self.refine_fuse[i](x)
+        if self.use_cov_pyramid:
+            cov_feats = self.cov_pyramid(cov)
+            for i in range(self.n_refine_stages):
+                x = self.refine_ups[i](x)
+                cov_feat = cov_feats[self.n_refine_stages - 1 - i]
+                if x.shape[-2:] != cov_feat.shape[-2:]:
+                    x = F.interpolate(x, size=cov_feat.shape[-2:], mode='bilinear', align_corners=False)
+                x = torch.cat([x, cov_feat], dim=1)
+                x = self.refine_fuse[i](x)
+        else:
+            for i in range(self.n_refine_stages):
+                x = self.refine_ups[i](x)
  
         if x.shape[-2:] != (H, W):
             x = F.interpolate(x, size=(H, W), mode='bilinear', align_corners=False)
