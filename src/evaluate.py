@@ -58,6 +58,7 @@ def build_model(cfg, device):
         cov_channels=cfg["data"]["cov_channels"],
         stage1_channels=cfg["data"].get("stage1_channels", 0),
         prior_fire_fraction=cfg["model"].get("prior_fire_fraction", 0.0085),
+        use_cov_pyramid=cfg["model"].get("use_cov_pyramid", True),
     ).to(device)
     return model
 
@@ -264,10 +265,11 @@ def main():
         print("  [WARN] Checkpoint has no saved 'config' -- building model "
               "from --config instead. Verify channel counts match training.")
     elif model_cfg.get("data", {}).get("goes_channels") != cfg["data"]["goes_channels"] or \
-         model_cfg.get("data", {}).get("cov_channels") != cfg["data"]["cov_channels"]:
-        print("  [WARN] --config data channels differ from the config saved in the "
-              "checkpoint. Using the checkpoint's config for model architecture; "
-              "eval settings (thresholds, splits, paths) still come from --config.")
+         model_cfg.get("data", {}).get("cov_channels") != cfg["data"]["cov_channels"] or \
+         model_cfg.get("model", {}).get("use_cov_pyramid", True) != cfg.get("model", {}).get("use_cov_pyramid", True):
+        print("  [WARN] --config differs from the config saved in the "
+              "checkpoint (channels or use_cov_pyramid). Using the checkpoint's "
+              "config for model architecture; eval settings still come from --config.")
 
     model = build_model(model_cfg, device)
     result = model.load_state_dict(ckpt["model"], strict=False)

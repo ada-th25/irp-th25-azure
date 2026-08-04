@@ -30,7 +30,7 @@
 
 # model:
 #   name: haunet
-#   prior_fire_fraction: 0.001589
+#   prior_fire_fraction: 0.0006
 
 # training:
 #   batch_size: 2
@@ -103,7 +103,7 @@ data:
 
 model:
   name: haunet
-  prior_fire_fraction: 0.001589
+  prior_fire_fraction: 0.0006
   use_cov_pyramid: false
 
 training:
