@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+import math
 import yaml
 from torch.utils.data import DataLoader
 import importlib
@@ -114,6 +115,56 @@ def evaluate_sample(model, batch, device, threshold, low_threshold,
         row["pp_pixel_f1"] = pp_pr["f1"]
         row["pp_centroid_dist_m"] = compute_centroid_distance(pseudo_logits, target, pixel_size_m=pixel_size_m)
 
+    return row
+
+@torch.no_grad()
+def evaluate_baseline_sample(batch, device, threshold, low_threshold,
+                              compute_ipsnr_flag, pixel_size_m):
+    """Same metrics as evaluate_sample, but for a trivial always-background
+    prediction i.e. logits fixed at a large negative value everywhere,
+    so sigmoid(logits) ≈ 0 for every pixel."""
+    target = batch["target"].to(device)
+    # Large negative constant logit -> sigmoid ≈ 0 across the whole image
+    logits = torch.full_like(target, -20.0)
+
+    row = {
+        "iou": compute_iou(logits, target, threshold=threshold),
+        "iou_t03": compute_iou(logits, target, threshold=low_threshold),
+        "soft_iou": compute_soft_iou(logits, target),
+        "boundary_f1": compute_boundary_f1(logits, target, threshold=threshold),
+        "auprc": compute_auprc(logits, target),
+        "centroid_dist_m": compute_centroid_distance(logits, target, pixel_size_m=pixel_size_m),
+    }
+    pr = compute_precision_recall(logits, target, threshold=threshold)
+    row["precision"] = pr["precision"]
+    row["recall"] = pr["recall"]
+    row["pixel_f1"] = pr["f1"]
+    row["ipsnr"] = float("nan")  # undefined/meaningless for a constant predictor
+    return row
+
+@torch.no_grad()
+def evaluate_prevalence_baseline_sample(batch, device, threshold, low_threshold,
+                                         pixel_size_m, prior_logit):
+    """Constant-probability baseline: every pixel gets the same predicted
+    probability, equal to the training-set positive-pixel prevalence. Unlike
+    the all-zero baseline, it can produce nonzero precision/recall at
+    low thresholds."""
+    target = batch["target"].to(device)
+    logits = torch.full_like(target, prior_logit)
+
+    row = {
+        "iou": compute_iou(logits, target, threshold=threshold),
+        "iou_t03": compute_iou(logits, target, threshold=low_threshold),
+        "soft_iou": compute_soft_iou(logits, target),
+        "boundary_f1": compute_boundary_f1(logits, target, threshold=threshold),
+        "auprc": compute_auprc(logits, target),
+        "centroid_dist_m": compute_centroid_distance(logits, target, pixel_size_m=pixel_size_m),
+    }
+    pr = compute_precision_recall(logits, target, threshold=threshold)
+    row["precision"] = pr["precision"]
+    row["recall"] = pr["recall"]
+    row["pixel_f1"] = pr["f1"]
+    row["ipsnr"] = float("nan")
     return row
 
 
@@ -250,10 +301,12 @@ def main():
     # ------------------------------------------------------------------
     # Output paths
     # ------------------------------------------------------------------
+    ckpt_tag = Path(args.checkpoint).stem   # e.g. "best_val_auprc" from "best_val_auprc.pt"
+
     log_dir = Path(cfg["logging"]["log_dir"])
     log_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = log_dir / f"{exp_name}_{args.split}_per_sample.csv"
-    summary_path = log_dir / f"{exp_name}_{args.split}_summary.json"
+    csv_path = log_dir / f"{exp_name}_{ckpt_tag}_{args.split}_per_sample.csv"
+    summary_path = log_dir / f"{exp_name}_{ckpt_tag}_{args.split}_summary.json"
 
     preds_dir = None
     if args.save_preds:
@@ -305,6 +358,38 @@ def main():
     print(f"\nPer-sample metrics written to {csv_path}")
 
     # ------------------------------------------------------------------
+    # All-zero baseline
+    # ------------------------------------------------------------------
+    baseline_rows = []
+    for batch in test_loader:
+        brow = evaluate_baseline_sample(
+            batch, device,
+            threshold=eval_threshold,
+            low_threshold=eval_low_threshold,
+            compute_ipsnr_flag=eval_compute_ipsnr,
+            pixel_size_m=eval_pixel_size_m,
+        )
+        baseline_rows.append(brow)
+    baseline_summary = summarize(baseline_rows)
+
+    # ------------------------------------------------------------------
+    # Prevalence-rate constant baseline
+    # ------------------------------------------------------------------
+    prior_p = cfg["model"].get("prior_fire_fraction", 0.0085)
+    prior_logit = math.log(prior_p / (1 - prior_p))
+    prevalence_rows = []
+    for batch in test_loader:
+        prow = evaluate_prevalence_baseline_sample(
+            batch, device,
+            threshold=eval_threshold,
+            low_threshold=eval_low_threshold,
+            pixel_size_m=eval_pixel_size_m,
+            prior_logit=prior_logit,
+        )
+        prevalence_rows.append(prow)
+    prevalence_summary = summarize(prevalence_rows)
+
+    # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
     summary = summarize(rows)
@@ -315,15 +400,19 @@ def main():
         "split": args.split,
         "n_samples": len(rows),
         "metrics": summary,
+        "baseline_all_zero": baseline_summary,
+        "baseline_prevalence_rate": prevalence_summary,
     }
     with open(summary_path, "w") as f:
         json.dump(summary_out, f, indent=2)
     print(f"Summary written to {summary_path}\n")
 
-    print(f"{'Metric':<18}{'Mean':>10}{'Std':>10}{'Median':>10}")
-    print("-" * 48)
+    print(f"{'Metric':<18}{'Model':>10}{'AllZero':>10}{'Prevalence':>12}")
+    print("-" * 50)
     for k, v in summary.items():
-        print(f"{k:<18}{v['mean']:>10.4f}{v['std']:>10.4f}{v['median']:>10.4f}")
+        b0 = baseline_summary.get(k, {}).get("mean", float("nan"))
+        bp = prevalence_summary.get(k, {}).get("mean", float("nan"))
+        print(f"{k:<18}{v['mean']:>10.4f}{b0:>10.4f}{bp:>12.4f}")
 
 
 if __name__ == "__main__":
