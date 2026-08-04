@@ -164,3 +164,18 @@
 - **Work Plan Before Next Meeting:**
     - Download more VIIRS data and train with it.
     - Train the model with dilated targets, try different losses etc and log results.
+
+### Meeting with Main Supervisor (04 Aug 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Presented some results from direct pipeline training.
+    - Discussed the main design chanages in HAUNet from the original.
+    - Discussed the overall experimental design for the project.
+- **Feedback:**
+    - Once we have results, try to look into comparing results with other papers.
+    - Continue with the model training and performing th experiments.
+    - In the report, write down the computing resources used, including GCP, GPUs etc.
+- **Work Plan Before Next Meeting:**
+    - Add compute resources into report.
+    - Continue training and obtain evaluation results for some experiments.
+    - Write down & send document of progress to Anna (second supervisor).
