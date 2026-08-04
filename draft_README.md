@@ -27,6 +27,7 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 ├── experiments/                # Model training configurations and hyperparameter settings (YAML)
 ├── requirements.txt
 ├── logbook/                    # Project tracking and meeting records
+├── logs/                       # Summary of experiment evaluation results
 ├── notebooks/                  # Project notes and exploratory ipynb notebooks
 ├── src/                        # Main project codebase and source modules
 │   ├── data/                   # Data generation, preprocessing, loading and pipeline scripts

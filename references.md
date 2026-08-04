@@ -334,3 +334,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 03/08/2026
     * **Scope:** Add a function in `src/evaluate` to add a baseline metric for all-zero prediction and also for prevalence-rate cases so it can be compared against my model metrics.
     * **Prompt:** (pasting evaluation script) "Add a function so that it calculates all the metrics in the evaluation loop so that it also calculates the all-zero prediction and also prevalence-rate cases so it can be comapred against my main results."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 04/08/2026
+    * **Scope:** Edit `src/utils/plot_predictions.py` so that it uses `use_cov_pyramid`, and ensure the model is built from the checkpoint's saved config.
+    * **Prompt:** (pasting existing plotting script, model script and YAML file) "Edit this so that is uses use_cov_pyramid. Also ensure the model is built from the checkpoint's saved config."
