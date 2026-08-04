@@ -85,9 +85,9 @@ class WildfireDataset(Dataset):
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
          target_size=None, cov_size=None, goes_size=None, 
-         dilate_target=False, heatmap_target=False,
+         binarize_target=None, dilate_target=False, heatmap_target=False,
          goes_mean=None, goes_std=None, dem_mean=None, dem_std=None, heatmap_sigma=1.0,
-         manifest_workers=32,
+         manifest_workers=32, drop_dem=False, drop_landcover=False,
          use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
 
         # Ensure mutual exclusion as requested
@@ -106,6 +106,12 @@ class WildfireDataset(Dataset):
         self.use_stage1_pred = use_stage1_pred
         self.stage1_pred_key = stage1_pred_key   # key in manifest["paths"] pointing to the stage-1 raster
         self.augment = augment
+        self.drop_dem = drop_dem
+        self.drop_landcover = drop_landcover
+
+        if binarize_target is None:
+            binarize_target = (branch == "viirs")
+        self.binarize_target = binarize_target
 
         # GOES per-channel standardisation stats (computed via compute_goes_stats.py
         # over the training split)
@@ -355,6 +361,11 @@ class WildfireDataset(Dataset):
         dem = (dem - self.dem_mean) / self.dem_std  # standardise
         lc_onehot = self._onehot_landcover(cov[1:2])
         cov = torch.cat([dem, lc_onehot], dim=0)   # (1+N, H, W)
+
+        if self.drop_dem:
+            cov[0:1] = 0.0
+        if self.drop_landcover:
+            cov[1:11] = 0.0
     
         # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
         goes = F.interpolate(
@@ -389,17 +400,12 @@ class WildfireDataset(Dataset):
                 mode="nearest",
             ).squeeze(0)
  
-        if self.branch == "viirs":
+        if self.binarize_target:
             target = (target > 0).float()
-            
-            # Apply dilation OR heatmap depending on config
             if self.dilate_target:
-                target = F.max_pool2d(
-                    target.unsqueeze(0), kernel_size=3, stride=1, padding=1
-                ).squeeze(0)
+                target = F.max_pool2d(target.unsqueeze(0), kernel_size=3, stride=1, padding=1).squeeze(0)
                 target = (target > 0).float()
             elif self.heatmap_target:
-                # Convert binary targets into standard continuous Gaussian targets
                 target = self.make_gaussian_heatmap_target(target, sigma=self.heatmap_sigma)
 
         input_channels = [goes_up]

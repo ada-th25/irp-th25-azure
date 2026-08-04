@@ -398,6 +398,9 @@ def main():
     default_heatmap = loss_type in GAUSSIAN_LOSS_TYPES
     heatmap_target = cfg["data"].get("heatmap_target", default_heatmap)
     dilate_target = cfg["data"].get("dilate_target", False)
+    drop_dem = cfg["data"].get("drop_dem", False)
+    drop_landcover = cfg["data"].get("drop_landcover", False)
+    binarize_target = cfg["data"].get("binarize_target", branch == "viirs")
 
     if heatmap_target and loss_type not in GAUSSIAN_LOSS_TYPES:
         print(f"  [WARN] heatmap_target=True but loss.type='{loss_type}' expects a "
@@ -474,6 +477,8 @@ def main():
     train_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=train_ids,
         dilate_target=dilate_target, heatmap_target=heatmap_target,
+        binarize_target=binarize_target,
+        drop_dem=drop_dem, drop_landcover=drop_landcover,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         dem_mean=cfg["data"].get("dem_mean"),
@@ -498,6 +503,8 @@ def main():
     val_ds = WildfireDataset(
         bucket_name, prefix, branch, split_ids=val_ids,
         dilate_target=False, heatmap_target=False,
+        binarize_target=binarize_target,
+        drop_dem=drop_dem, drop_landcover=drop_landcover,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
         dem_mean=cfg["data"].get("dem_mean"),
