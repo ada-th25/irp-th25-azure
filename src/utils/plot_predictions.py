@@ -80,18 +80,19 @@ def build_model(cfg: dict, config_path: str) -> torch.nn.Module:
     exp_name = cfg.get("experiment", {}).get("name", "").lower()
     config_str = config_path.lower()
 
-    # Route to Autoencoder if specified in model type, experiment name, or config filename
     if "autoencoder" in model_type or "autoencoder" in exp_name or "autoencoder" in config_str:
         return make_autoencoder_model(
             goes_channels=cfg["data"]["goes_channels"],
             cov_channels=cfg["data"]["cov_channels"],
             stage1_channels=cfg["data"].get("stage1_channels", 0),
         )
-    
+
     return make_haunet_model(
         goes_channels=cfg["data"]["goes_channels"],
         cov_channels=cfg["data"]["cov_channels"],
         stage1_channels=cfg["data"].get("stage1_channels", 0),
+        prior_fire_fraction=cfg["model"].get("prior_fire_fraction", 0.0085),
+        use_cov_pyramid=cfg["model"].get("use_cov_pyramid", True),
     )
 
 
@@ -152,13 +153,20 @@ def main():
         goes_ch = cfg["data"]["goes_channels"]
         stage1_pred_np = inp[:, goes_ch:goes_ch+1].cpu().numpy()  # (B, 1, H, W)
 
+    ckpt = None
+    model_cfg = cfg
+    if args.checkpoint:
+        ckpt = torch.load(args.checkpoint, map_location=device)
+        if "config" in ckpt:
+            model_cfg = ckpt["config"]
+        else:
+            print("  [WARN] Checkpoint has no saved 'config' -- building model from --config instead.")
+
     with timed("build model"):
-        model = build_model(cfg, args.config).to(device)
+        model = build_model(model_cfg, args.config).to(device)
 
     if args.checkpoint:
         with timed("load checkpoint"):
-            ckpt = torch.load(args.checkpoint, map_location=device)
-            # Handle checkpoints saved under "model" or "state_dict" keys
             state_dict = ckpt.get("model", ckpt.get("state_dict", ckpt))
             model.load_state_dict(state_dict)
         print(f"Loaded checkpoint: {args.checkpoint} (epoch {ckpt.get('epoch', 'N/A')})")
