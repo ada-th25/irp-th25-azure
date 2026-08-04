@@ -1,17 +1,17 @@
-# experiments/e3_haunet_cascaded_stage2.yaml
+# experiments/e2_haunet_cascaded_stage2.yaml
 # ===================================
 # Stage 2 of the cascaded pipeline (VIIRS-pred -> Landsat), HAUNet.
 experiment:
-  name: e3_haunet_cascaded_stage2_focal_dice_v1
+  name: e2_haunet_cascaded_stage2_focal_dice_v2
   branch: landsat
 data:
   bucket_name: wildfire-irp-data-th25
   output_prefix: processed_dataset_gcp
   splits_dir: splits
-  goes_mean: [304.41929302202146, 295.34150143596486, 9.077791586056561]
-  goes_std: [13.706893469524932, 10.664054013234717, 7.4233895594608095]
-  dem_mean: [0.3390881556710402]
-  dem_std: [0.5048759609237181]
+  goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+  goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+  dem_mean: [0.5949345570310792]
+  dem_std: [0.9305519074216174]
   heatmap_target: false
   dilate_target: false
   goes_channels: 3
@@ -24,6 +24,7 @@ data:
 model:
   name: haunet
   drop_out_rate: 0.1
+  prior_fire_fraction: 0.0006
 training:
   batch_size: 2
   grad_accum_steps: 4
@@ -48,16 +49,24 @@ postprocess:
   min_component_size: 4
 checkpointing:
   checkpoint_dir: checkpoints
-  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e3_haunet_cascaded_stage2_focal_dice_v1
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_v2
   keep_last_n: 1
   best_metric: [val_auprc, val_soft_iou]
 logging:
   log_dir: logs
   use_wandb: false
+#loss:
+  #type: focal_dice
+  #alpha: 0.85
+  #gamma: 1.5
+  #focal_weight: 1.0
+  #dice_weight: 1.0
+  #smooth: 0.001
+
 loss:
   type: focal_dice
-  alpha: 0.85
-  gamma: 1.5
-  focal_weight: 1.0
-  dice_weight: 1.0
+  alpha: 0.9
+  gamma: 2.5
+  focal_weight: 0.5
+  dice_weight: 1.5      # weight dice higher: it's more forgiving of near-miss localization than focal
   smooth: 0.001
