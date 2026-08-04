@@ -171,6 +171,25 @@
   langid = {english}
 }
 
+@article{gorelickGoogleEarthEngine2017,
+  title = {Google {{Earth Engine}}: {{Planetary-scale}} Geospatial Analysis for Everyone},
+  shorttitle = {Google {{Earth Engine}}},
+  author = {Gorelick, Noel and Hancher, Matt and Dixon, Mike and Ilyushchenko, Simon and Thau, David and Moore, Rebecca},
+  date = {2017-12-01},
+  journaltitle = {Remote Sensing of Environment},
+  shortjournal = {Remote Sens. Environ.},
+  series = {Big {{Remotely Sensed Data}}: Tools, Applications and Experiences},
+  volume = {202},
+  pages = {18--27},
+  issn = {0034-4257},
+  doi = {10.1016/j.rse.2017.06.031},
+  url = {https://www.sciencedirect.com/science/article/pii/S0034425717302900},
+  urldate = {2026-08-04},
+  abstract = {Google Earth Engine is a cloud-based platform for planetary-scale geospatial analysis that brings Google's massive computational capabilities to bear on a variety of high-impact societal issues including deforestation, drought, disaster, disease, food security, water management, climate monitoring and environmental protection. It is unique in the field as an integrated platform designed to empower not only traditional remote sensing scientists, but also a much wider audience that lacks the technical capacity needed to utilize traditional supercomputers or large-scale commodity cloud computing resources.},
+  keywords = {Analysis,Big data,Cloud computing,Data democratization,Earth Engine,Platform},
+  file = {/Users/th25/Zotero/storage/HTURBSGS/Gorelick et al. - 2017 - Google Earth Engine Planetary-scale geospatial analysis for everyone.pdf;/Users/th25/Zotero/storage/MRS5ZLFC/S0034425717302900.html}
+}
+
 @article{hanEnhancingRemoteSensing2023,
   title = {Enhancing {{Remote Sensing Image Super-Resolution}} with {{Efficient Hybrid Conditional Diffusion Model}}},
   author = {Han, Lintao and Zhao, Yuchen and Lv, Hengyi and Zhang, Yisa and Liu, Hailong and Bi, Guoling and Han, Qing},
@@ -375,7 +394,7 @@
   urldate = {2026-07-24},
   abstract = {This paper presents a new vision Transformer, called Swin Transformer, that capably serves as a general-purpose backbone for computer vision. Challenges in adapting Transformer from language to vision arise from differences between the two domains, such as large variations in the scale of visual entities and the high resolution of pixels in images compared to words in text. To address these differences, we propose a hierarchical Transformer whose representation is computed with Shifted windows. The shifted windowing scheme brings greater efficiency by limiting self-attention computation to non-overlapping local windows while also allowing for cross-window connection. This hierarchical architecture has the flexibility to model at various scales and has linear computational complexity with respect to image size. These qualities of Swin Transformer make it compatible with a broad range of vision tasks, including image classification (87.3 top-1 accuracy on ImageNet-1K) and dense prediction tasks such as object detection (58.7 box AP and 51.1 mask AP on COCO test-dev) and semantic segmentation (53.5 mIoU on ADE20K val). Its performance surpasses the previous state-of-the-art by a large margin of +2.7 box AP and +2.6 mask AP on COCO, and +3.2 mIoU on ADE20K, demonstrating the potential of Transformer-based models as vision backbones. The hierarchical design and the shifted window approach also prove beneficial for all-MLP architectures. The code and models are publicly available at https://github.com/microsoft/Swin-Transformer.},
   eventtitle = {2021 {{IEEE}}/{{CVF International Conference}} on {{Computer Vision}} ({{ICCV}})},
-  keywords = {Computational modeling,Computer architecture,Computer vision,Detection and localization in 2D and 3D,grouping and shape,Image segmentation,Object detection,Recognition and classification,Representation learning,Segmentation,Semantics,Visualization},
+  keywords = {Computational modeling,Computer architecture,Computer vision,Detection and localization in 2D and 3D,grouping and shape,Image segmentation,Object detection,Recognition and classification,Representation learning,Segmentation,Semantics,shifted window,swin transformer,Visualization},
   file = {/Users/th25/Zotero/storage/SKWS7NHB/9710580.html}
 }
 
@@ -455,6 +474,20 @@
   pubstate = {prepublished},
   version = {1},
   keywords = {Computer Vision and Pattern Recognition (cs.CV),Diffusion model,Flood mapping,FOS: Computer and information sciences,High-resolution flood mapping,U-Net}
+}
+
+@dataset{noaa_goes16_gcp,
+  title = {{{GOES-16 Satellite Data Public Bucket}}},
+  author = {NOAA},
+  date = {2017-05-23},
+  url = {https://console.cloud.google.com/storage/browser/gcp-public-data-goes-16}
+}
+
+@dataset{noaa_goes17_gcp,
+  title = {{{GOES-17 Satellite Data Public Bucket}}},
+  author = {NOAA},
+  date = {2018-11-14},
+  url = {https://console.cloud.google.com/storage/browser/gcp-public-data-goes-17}
 }
 
 @article{qiAdvancingImageSuperresolution2026,

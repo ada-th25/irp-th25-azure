@@ -126,8 +126,10 @@ Existing literature is dominated by direct downscaling across the full resolutio
     \item Evaluate the trade-offs of cascaded and direct downscaling and its effectiveness in improving the accuracy of wildfire downscaling.
 \end{enumerate}
 
-\section{Data and Materials}
+\section{Data and Materials}\label{sec:data}
 Table \ref{tab:data_sources} shows the data sources used for this project. The specifications for the VIIRS, GOES, and Landsat data are outlined in Table \ref{tab:pipeline_configs}.
+
+The GOES-16/17 data were obtained via public Google Cloud Platform (GCP) buckets (\cite{noaa_goes16_gcp, noaa_goes17_gcp}). DEM, and ESA WorldCover are obtained via Google Earth Engine (GEE) Python API (\cite{gorelickGoogleEarthEngine2017}) and exported directly to Google Cloud Storage (GCS). The Landsat-8 fire masks are derived by \cite{dealmeidapereiraActiveFireDetection2021} and obtained from the author's public dataset (hosted on Google Drive) and re-uploaded to GCS for pipeline consistency. VIIRS fire detections are obtained from NASA FIRMS archive. Manifests, split assignments and model checkpoints are also stored in GCS.
 
 The data was processed so that all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute temporal window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets, stratified sampling was applied across temporal extent and fire pixel count bins during data splitting. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried. In addition to the native $3.9\ \mu\text{m}$ (Ch. 7) and $11.2\ \mu\text{m}$ (Ch. 14) GOES brightness temperatures, a Thermal Fire Index (TFI) is computed as:
 
@@ -256,6 +258,9 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
     \mathcal{L}_{\text{dice}} = 1 - \frac{2 \sum_{i,j} p_{i,j} y_{i,j} + \epsilon}{\sum_{i,j} p_{i,j} + \sum_{i,j} y_{i,j} + \epsilon}
 \end{equation}
 where $\epsilon$ is a smoothing term preventing division by zero.
+
+\subsection{Computational Infrastructure}
+Model development and training were conducted on a GCP Vertex AI Workbench instance equipped with an NVIDIA L4 GPU, 32 GB RAM, 8 vCPUs. Data generation and preprocessing were run as separate CPU-only jobs querying GCS directly.
 
 \subsection{Experimental Design}
 To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assessed under the following ablations, in addition to the primary direct-vs-cascaded pipeline comparison:
