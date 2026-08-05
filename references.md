@@ -339,3 +339,15 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 04/08/2026
     * **Scope:** Edit `src/utils/plot_predictions.py` so that it uses `use_cov_pyramid`, and ensure the model is built from the checkpoint's saved config.
     * **Prompt:** (pasting existing plotting script, model script and YAML file) "Edit this so that is uses use_cov_pyramid. Also ensure the model is built from the checkpoint's saved config."
+
+* **Tool:** Google Gemini (3.6)
+    * **Date Used:** 05/08/2026
+    * **Scope:** Change `src/data/wildfire_dataset.py` to be able to configure dilation kernel size.
+    * **Prompt:** (pasting existing wildfire_dataset) "Change so that user can configure the kernel size for dilation"
+    * **Human Modification:** Set different default kernel size for Landsat and VIIRS (5 and 3 respectively).
+
+* **Tool:** Google Gemini (3.6)
+    * **Date Used:** 05/08/2026
+    * **Scope:** Update plotting code in `notebooks/explore_dataset.ipynb` to choose random data patch. Additionally plots random VIIRS/Landsat data with original vs dilated targets.
+    * **Prompt:** (pasting existing plotting code in notebook, and the dilation logic in wildfire_dataset) "Change this so that it plots random data ids, and also plot all the GOES channels. Additionally, plot original vs dilated (for both Landsat and VIIRS)."
+    * **Human Modification:** Rewrite configuration to match GCP bucket details.

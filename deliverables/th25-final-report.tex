@@ -190,6 +190,7 @@ Measured on the held-out test split, the fire-pixel prevalence was $0.008\%$ (VI
 \end{table}
 
 \section{Methods}
+
 \subsection{HAUNet (Hybrid Attention U-Net)}
 Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses hybrid attention to capture both local fine detail and broader contextual structure across multiple scales. HAUNet was selected for its ability to capture local extreme hotspots in near-zero background, which standard U-Nets might smooth out.
 HAUNet uses two variants of attention blocks:
@@ -227,6 +228,18 @@ The main encoder-decoder path produces low-resolution feature representations ($
     \label{fig:haunet}
 \end{figure}
 
+\subsection{Autoencoder Baseline}
+The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024}, adapted to this project to concatenate the covariates with the fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, shown in Figure \ref{fig:autoencoder}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/autoencoder_diagram.png}
+    \caption{Architecture overview of the wildfire-adapted autoencoder baseline based on \cite{badhanDeepLearningApproach2024}.}
+    \label{fig:autoencoder}
+\end{figure}
+
+This baseline is trained under identical conditions to HAUNet (same loss, optimiser, data splits, and covariate set) so that any performance gap are attributable to architectural differences. It establishes a lower bound against which HAUNet's improvement can be quantified, and isolating whether performance gains stem specifically from attention and full-resolution covariate processing, or would be achievable with a standard convolutional model.
+
 \subsection{Loss Functions}
 \subsubsection{Focal Dice Loss}
 Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss was used. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss, which optimises for spatial region overlap:
@@ -260,7 +273,7 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 where $\epsilon$ is a smoothing term preventing division by zero.
 
 \subsection{Computational Infrastructure}
-Model development and training were conducted on a GCP Vertex AI Workbench instance equipped with an NVIDIA L4 GPU, 32 GB RAM, 8 vCPUs. Data generation and preprocessing were run as separate CPU-only jobs querying GCS directly.
+Model development and training were conducted on a GCP Vertex AI Workbench instance equipped with an NVIDIA L4 GPU, 23.7 GB VRAM, 32 GB RAM, 8 vCPUs. Data generation and preprocessing were run as separate CPU-only jobs querying GCS directly.
 
 \subsection{Experimental Design}
 To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assessed under the following ablations, in addition to the primary direct-vs-cascaded pipeline comparison:
