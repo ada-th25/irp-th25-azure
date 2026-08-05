@@ -169,6 +169,7 @@ data:
   dem_std: [0.9305519074216174]
   heatmap_target: false
   dilate_target: true
+  dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
   goes_channels: 3
   cov_channels: 11
   num_workers: 2
@@ -199,10 +200,10 @@ evaluation:
   log_postprocessed: true
 
 postprocess:
-  method: percentile        # "percentile" "otsu" or "fixed"
-  percentile: 95
-  fixed_threshold: 0.5
-  min_component_size: 4
+  method: otsu      # "percentile" "otsu" or "fixed"
+  # percentile: 95
+  # fixed_threshold: 0.5
+  # min_component_size: 4
 
 checkpointing:
   checkpoint_dir: checkpoints

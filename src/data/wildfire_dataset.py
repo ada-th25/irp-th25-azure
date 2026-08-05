@@ -85,7 +85,7 @@ class WildfireDataset(Dataset):
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
          target_size=None, cov_size=None, goes_size=None, 
-         binarize_target=None, dilate_target=False, heatmap_target=False,
+         binarize_target=None, dilate_target=False, heatmap_target=False, dilation_kernel_size=None,
          goes_mean=None, goes_std=None, dem_mean=None, dem_std=None, heatmap_sigma=1.0,
          manifest_workers=32, drop_dem=False, drop_landcover=False,
          use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
@@ -112,6 +112,11 @@ class WildfireDataset(Dataset):
         if binarize_target is None:
             binarize_target = (branch == "viirs")
         self.binarize_target = binarize_target
+
+        if dilation_kernel_size is None:
+            self.dilation_kernel_size = 5 if branch == "landsat" else 3
+        else:
+            self.dilation_kernel_size = dilation_kernel_size
 
         # GOES per-channel standardisation stats (computed via compute_goes_stats.py
         # over the training split)
@@ -403,10 +408,18 @@ class WildfireDataset(Dataset):
         if self.binarize_target:
             target = (target > 0).float()
             if self.dilate_target:
-                target = F.max_pool2d(target.unsqueeze(0), kernel_size=3, stride=1, padding=1).squeeze(0)
+                padding = self.dilation_kernel_size // 2
+                target = F.max_pool2d(
+                    target.unsqueeze(0),
+                    kernel_size=self.dilation_kernel_size,
+                    stride=1,
+                    padding=padding,
+                ).squeeze(0)
                 target = (target > 0).float()
             elif self.heatmap_target:
-                target = self.make_gaussian_heatmap_target(target, sigma=self.heatmap_sigma)
+                target = self.make_gaussian_heatmap_target(
+                    target, sigma=self.heatmap_sigma
+                )
 
         input_channels = [goes_up]
  

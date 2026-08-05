@@ -401,6 +401,7 @@ def main():
     drop_dem = cfg["data"].get("drop_dem", False)
     drop_landcover = cfg["data"].get("drop_landcover", False)
     binarize_target = cfg["data"].get("binarize_target", branch == "viirs")
+    dilation_kernel_size = cfg["data"].get("dilation_kernel_size", None)
 
     if heatmap_target and loss_type not in GAUSSIAN_LOSS_TYPES:
         print(f"  [WARN] heatmap_target=True but loss.type='{loss_type}' expects a "
@@ -478,6 +479,7 @@ def main():
         bucket_name, prefix, branch, split_ids=train_ids,
         dilate_target=dilate_target, heatmap_target=heatmap_target,
         binarize_target=binarize_target,
+        dilation_kernel_size=dilation_kernel_size,
         drop_dem=drop_dem, drop_landcover=drop_landcover,
         goes_mean=cfg["data"].get("goes_mean"),
         goes_std=cfg["data"].get("goes_std"),
