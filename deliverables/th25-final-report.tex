@@ -193,7 +193,6 @@ Measured on the held-out test split, the fire-pixel prevalence was $0.008\%$ (VI
 
 \subsection{HAUNet (Hybrid Attention U-Net)}
 Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses hybrid attention to capture both local fine detail and broader contextual structure across multiple scales. HAUNet was selected for its ability to capture local extreme hotspots in near-zero background, which standard U-Nets might smooth out.
-HAUNet uses two variants of attention blocks:
 
 \subsubsection{Hybrid Attention Mechanisms}
 \begin{itemize}
@@ -227,6 +226,14 @@ The main encoder-decoder path produces low-resolution feature representations ($
     \caption{Architecture overview of the wildfire-adapted HAUNet. The full-resolution stream processes native covariates, which are progressively fused via refinement blocks with the low-resolution stack after CIM.}
     \label{fig:haunet}
 \end{figure}
+
+\subsubsection{Architecture Selection Rationale}
+HAUNet was selected as one of the architectures for the following reasons: 
+\begin{itemize}
+    \item It uses dual attention: channel attention to capture global information across feature channels and spatial attention to capture spatial relationships.
+    \item Its CIM used as skip connections. Skip connections used in conventional U-Net concatenate features at matching spatial resolution, but this assume they are semantically comparable. CIM addresses this by explicitly bridging semantic and resolution gaps between encoder outputs at different scales prior to fusion.
+    \item Both the autoencoder baseline and HAUNet share the same underlying encoder-decoder-with-skip-connections structure. This allows the comparison between the two models to directly isolate the contribution of HAUNet's attention mechanisms and skip-connection design.
+\end{itemize}
 
 \subsection{Autoencoder Baseline}
 The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024}, adapted to this project to concatenate the covariates with the fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, shown in Figure \ref{fig:autoencoder}.
@@ -283,6 +290,10 @@ To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assess
     \item with and without land cover as an input covariate.
 \end{enumerate}
 
+In the cascaded pipeline, Stage 1 (GOES to VIIRS) is trained on GOES/VIIRS pairs to predict a VIIRS-resolution ($375$m) fire mask from the GOES input. Stage 2 (VIIRS to Landsat) is intended to further downscale this to Landsat resolution ($30$m). However, VIIRS and Landsat overpasses times do not overlap, so matching VIIRS/Landsat pairs are not directly available in the same way GOES/VIIRS pairs are. To address this temporal mismatch, Stage 2 is instead trained using the trained Stage 1 model's predictions on GOES/Landsat dataset as inputs, rather than ground-truth VIIRS observations. For each GOES/Landsat pair, the Stage 1 model produces a predicted VIIRS-resolution fire mask from the temporally matched GOES input, and this prediction is paired with the corresponding Landsat ground truth to train Stage 2. This ensures both stages of the cascaded pipeline operate on inputs available at inference time (i.e. Stage 2 never has access to real VIIRS observations at test time either), avoiding a train/inference mismatch that would occur if Stage 2 were trained on ground-truth VIIRS data unavailable in a genuinely cascaded operational setting.
+
+Each experiment (architecture, covariate set, pipeline stage) was defined by YAML configuration files specifying model hyperparameters, data paths, loss weights, and training settings for reproducibility.
+
 \subsection{Evaluation Metrics}
 \begin{itemize}
     \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks:
@@ -321,6 +332,8 @@ $2.$ is the theoretically expected value of AUPRC under a classifier with no spa
 \section{Results}
 
 \section{Discussions} \label{sec:discussion}
+
+A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. This intermediate target is model-derived rather than observational. A consequence is that any systematic bias in Stage 1 propagates into Stage 2's training, meaning Stage 2 learns to downscale Stage 1's errors, rather than being evaluated and trained against an independent ground truth. This is a direct counterpoint to the motivation for cascaded downscaling: while cascading may reduce error from the resolution gap itself, it introduces source of error from stage-to-stage prediction dependency.
 
 \section{Conclusions}
 Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes.
