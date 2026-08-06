@@ -5,9 +5,11 @@ raster, then patches each sample's manifest JSON to point at it.
 
 Usage:
     python src/data/generate_stage1_predictions.py \
-        --config experiments/e2_haunet_cascaded_stage1_test.YAML \
-        --stage1-ckpt checkpoints/e2_haunet_stage1/best.pt \
-        --splits train val test
+    --config experiments/e2_haunet_cascaded_stage1.YAML \
+    --stage1-ckpt checkpoints/e2_haunet_cascaded_stage1_focal_dice/best_val_auprc.pt \
+    --output-key stage1_pred \
+    --overwrite \
+    --splits train val test
 """
 
 import argparse

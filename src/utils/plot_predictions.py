@@ -1,6 +1,6 @@
 """
-Plot GOES bands, covariates, true target, and predicted fire probability
-for a handful of val/train/test samples, side by side.
+Plot GOES bands, covariates, true target, predicted fire probability,
+and difference map for a handful of val/train/test samples, side by side.
 
 Usage:
     # Basic prediction plot
@@ -149,9 +149,8 @@ def main():
     use_stage1_pred = cfg["data"].get("use_stage1_pred", False)
     stage1_pred_np = None
     if use_stage1_pred:
-        # input channel layout in WildfireDataset.__getitem__: [goes_up, stage1_pred(if enabled), cov]
         goes_ch = cfg["data"]["goes_channels"]
-        stage1_pred_np = inp[:, goes_ch:goes_ch+1].cpu().numpy()  # (B, 1, H, W)
+        stage1_pred_np = inp[:, goes_ch:goes_ch+1].cpu().numpy()
 
     ckpt = None
     model_cfg = cfg
@@ -192,7 +191,7 @@ def main():
     base_titles = ["GOES C07", "GOES C14", "GOES TFI", "DEM (cov[0])", "Land cover (cov[1])"]
     if use_stage1_pred:
         base_titles.append("Stage1 P(fire) input")
-    base_titles += ["True target", "Predicted P(fire)"]
+    base_titles += ["True target", "Predicted P(fire)", "Difference (Pred - Target)"]
     col_titles = list(base_titles)
     if args.show_postprocessed:
         col_titles.append("Post-processed mask")
@@ -208,14 +207,15 @@ def main():
             cov_np = cov[row].numpy()
             target_np = target[row, 0].cpu().numpy()
             prob_np = probs[row, 0].cpu().numpy()
+            diff_np = prob_np - target_np
 
             panels = [goes_np[0], goes_np[1], goes_np[2], cov_np[0], cov_np[1]]
             cmaps = ["inferno", "inferno", "inferno", "terrain", "tab20"]
             if use_stage1_pred:
                 panels.append(stage1_pred_np[row, 0])
                 cmaps.append("hot")
-            panels += [target_np, prob_np]
-            cmaps += ["hot", "hot"]
+            panels += [target_np, prob_np, diff_np]
+            cmaps += ["hot", "hot", "coolwarm"]
             if args.show_postprocessed:
                 panels.append(pp_mask[row, 0].cpu().numpy())
                 cmaps.append("gray")
@@ -227,6 +227,10 @@ def main():
                 # Add colorbar specifically for target and prediction to show value ranges
                 if col_titles[col] in ["True target", "Predicted P(fire)", "Stage1 P(fire) input"]:
                     im.set_clim(0.0, 1.0)  # Pin range to [0, 1] for probability scale
+                    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    cbar.ax.tick_params(labelsize=8)
+                elif col_titles[col] == "Difference (Pred - Target)":
+                    im.set_clim(-1.0, 1.0)  # Pin range to [-1, 1] for zero-centered difference scale
                     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
                     cbar.ax.tick_params(labelsize=8)
 
