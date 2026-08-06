@@ -1,0 +1,80 @@
+# experiments/e4_autoencoder_cascaded_stage1.YAML
+# ===================================
+# GOES -> VIIRS
+
+# ===================================
+# e4 Autoencoder cascaded stage 1 focal dice
+# ===================================
+
+experiment:
+  name: e4_autoencoder_cascaded_stage1_focal_dice
+  branch: viirs
+
+model:
+  name: autoencoder
+
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits
+  heatmap_sigma: 1.5
+  goes_mean: [304.52951863959134, 295.51011064894595, 8.995863380755512] # GOES stats calculated only from the train dataset
+  goes_std: [13.284006695532215, 10.658734628311198, 7.259822851148196]
+  dem_mean: [0.36452374771643253]
+  dem_std: [0.5169181929171535]
+  heatmap_target: false
+  dilate_target: false
+  goes_channels: 3
+  cov_channels: 11
+  num_workers: 2
+  use_stage1_pred: false
+  stage1_channels: 0
+
+training:
+  batch_size: 2
+  grad_accum_steps: 4
+  epochs: 20
+  learning_rate: 1e-4
+  min_lr: 1.0e-6
+  weight_decay: 1.0e-4
+  grad_clip: 2.0
+  val_every_n_epochs: 1
+  save_every_n_epochs: 3
+  use_weighted_sampler: true
+
+evaluation:
+  threshold: 0.5
+  low_threshold: 0.3
+  compute_ipsnr: true
+  pixel_size_m: 30.0         # Landsat
+  log_postprocessed: true
+
+postprocess:
+  method: otsu        # "percentile" "otsu" or "fixed"
+  percentile: 95
+  fixed_threshold: 0.5
+  min_component_size: 4
+
+checkpointing:
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e4_autoencoder_cascaded_stage1_focal_dice
+  keep_last_n: 1
+  best_metric: [val_auprc, val_soft_iou]
+
+logging:
+  log_dir: logs
+  use_wandb: false
+
+loss:
+  type: focal_dice
+  alpha: 0.85
+  gamma: 1.5
+  focal_weight: 1.0
+  dice_weight: 1.0
+  smooth: 0.001
+
+
+# ==========================================
+# e4 Autoencoder focal dice, dilated
+# ==========================================
+
