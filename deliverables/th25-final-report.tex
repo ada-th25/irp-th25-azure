@@ -122,7 +122,7 @@ Existing literature is dominated by direct downscaling across the full resolutio
 
 \begin{enumerate}
     \item Develop a domain-specific, multi-stage framework for wildfire downsclaing.
-    \item Compare the performance of different downscaling architectures in terms of accuracy of the predicted fires at high-resolution.
+    \item Compare the performance of HAUNet compared to baseline autoencoder in terms of accuracy and quality of the downscaled predicted fires.
     \item Evaluate the trade-offs of cascaded and direct downscaling and its effectiveness in improving the accuracy of wildfire downscaling.
 \end{enumerate}
 
@@ -131,12 +131,18 @@ Table \ref{tab:data_sources} shows the data sources used for this project. The s
 
 The GOES-16/17 data were obtained via public Google Cloud Platform (GCP) buckets (\cite{noaa_goes16_gcp, noaa_goes17_gcp}). DEM, and ESA WorldCover are obtained via Google Earth Engine (GEE) Python API (\cite{gorelickGoogleEarthEngine2017}) and exported directly to Google Cloud Storage (GCS). The Landsat-8 fire masks are derived by \cite{dealmeidapereiraActiveFireDetection2021} and obtained from the author's public dataset (hosted on Google Drive) and re-uploaded to GCS for pipeline consistency. VIIRS fire detections are obtained from NASA FIRMS archive. Manifests, split assignments and model checkpoints are also stored in GCS.
 
-The data was processed so that all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute temporal window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets, stratified sampling was applied across temporal extent and fire pixel count bins during data splitting. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried. In addition to the native $3.9\ \mu\text{m}$ (Ch. 7) and $11.2\ \mu\text{m}$ (Ch. 14) GOES brightness temperatures, a Thermal Fire Index (TFI) is computed as:
+The data was processed so that all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute temporal window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets (mean fraction of positive target pixels per patch are $0.85\%$ for VIIRS, $0.06\%$ for Landsat), stratified sampling was applied across temporal extent and fire pixel count bins during data splitting. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried.
+
+GOES-16/17 channels 7 ($3.9\,\mu$m, shortwave IR) and 14 ($11.2\,\mu$m, longwave IR) are used as they directly correspond to the spectral bands for fire-detection for their sensitivity to fire radiance. This is similar spectral logic in VIIRS's own active-fire algorithm, which similarly relies on a shortwave (I4, $3.74\,\mu$m) and longwave (I5, $11.45\,\mu$m) channel pair. (\cite{schmidtGOESRAdvancedBaseline})
+
+In addition to the native $3.9\ \mu\text{m}$ (Ch. 7) and $11.2\ \mu\text{m}$ (Ch. 14) GOES brightness temperatures, a Thermal Fire Index (TFI) is computed as additional input channel:
 
 \begin{equation}
     TFI = Ch.7 - Ch.14
     \label{eq:tfi}
 \end{equation}
+
+Explicitly providing the difference reduces the burden on early network layers to discover a known, physically meaningful relationship, aiming to save model capacity and improving convergence.
 
 The dataset is split into training/validation/testing (80/10/10). This split utilises stratified random sampling across four quantile bins based on the active fire pixel count per patch for balanced representation of fire sizes. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
 
@@ -333,7 +339,7 @@ $2.$ is the theoretically expected value of AUPRC under a classifier with no spa
 
 \section{Discussions} \label{sec:discussion}
 
-A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. This intermediate target is model-derived rather than observational. A consequence is that any systematic bias in Stage 1 propagates into Stage 2's training, meaning Stage 2 learns to downscale Stage 1's errors, rather than being evaluated and trained against an independent ground truth. This is a direct counterpoint to the motivation for cascaded downscaling: while cascading may reduce error from the resolution gap itself, it introduces source of error from stage-to-stage prediction dependency.
+A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. This intermediate target is model-derived rather than observational. A consequence is that any error in Stage 1 propagates into Stage 2's training, meaning Stage 2 also learns to downscale Stage 1's errors alongside fire information. This is a direct counterpoint to the motivation for cascaded downscaling: while cascading may reduce error from the resolution gap itself, it introduces source of error from stage-to-stage prediction dependency.
 
 \section{Conclusions}
 Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes.
