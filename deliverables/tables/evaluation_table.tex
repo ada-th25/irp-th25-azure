@@ -1,0 +1,17 @@
+\begin{table}
+\caption{Model performance evaluation across feature ablations vs. fixed baselines.}
+\label{tab:evaluation_results}
+\begin{tabular}{lccccc}
+\toprule
+ & auprc & precision (Post-PP) & recall (Post-PP) & boundary_f1 & ipsnr \\
+\midrule
+e1_haunet_direct_focal_dice & 0.010298 & 0.002128 & 0.340311 & 0.000410 & 0.361759 \\
+e1_haunet_direct_focal_dice_dilated & 0.016267 & 0.007190 & 0.310138 & 0.000391 & 0.399669 \\
+e1_haunet_direct_focal_dice_no_cov_encoder & 0.009568 & 0.004263 & 0.460415 & 0.001409 & 0.483914 \\
+e1_haunet_direct_focal_dice_no_dem & 0.004989 & 0.002045 & 0.309491 & 0.001103 & 1.469630 \\
+e1_haunet_direct_focal_dice_no_landcover & 0.005365 & 0.002576 & 0.504971 & 0.001452 & 1.130604 \\
+Baseline: All-Zero & 0.000618 & 0.000000 & 0.000000 & 0.000000 & N/A \\
+Baseline: Prevalence-Rate & 0.000618 & 0.000000 & 0.000000 & 0.000000 & N/A \\
+\bottomrule
+\end{tabular}
+\end{table}
