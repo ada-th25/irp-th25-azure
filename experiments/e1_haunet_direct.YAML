@@ -7,73 +7,73 @@
 # e1 haunet direct focal dice, with cov encoder & covs
 # ====================================================
 
-# experiment:
-#   name: e1_haunet_direct_focal_dice
-#   branch: landsat
+experiment:
+  name: e1_haunet_direct_focal_dice
+  branch: landsat
 
-# data:
-#   bucket_name: wildfire-irp-data-th25
-#   output_prefix: processed_dataset_gcp
-#   splits_dir: splits
-#   heatmap_sigma: 1.5
-#   goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
-#   goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
-#   dem_mean: [0.5949345570310791]
-#   dem_std: [0.9305519074216174]
-#   heatmap_target: false
-#   dilate_target: false
-#   goes_channels: 3
-#   cov_channels: 11
-#   num_workers: 2
-#   use_stage1_pred: false
-#   stage1_channels: 0
+data:
+  bucket_name: wildfire-irp-data-th25
+  output_prefix: processed_dataset_gcp
+  splits_dir: splits
+  heatmap_sigma: 1.5
+  goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+  goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+  dem_mean: [0.5949345570310791]
+  dem_std: [0.9305519074216174]
+  heatmap_target: false
+  dilate_target: false
+  goes_channels: 3
+  cov_channels: 11
+  num_workers: 2
+  use_stage1_pred: false
+  stage1_channels: 0
 
-# model:
-#   name: haunet
-#   prior_fire_fraction: 0.0006
+model:
+  name: haunet
+  prior_fire_fraction: 0.0006
 
-# training:
-#   batch_size: 2
-#   grad_accum_steps: 4
-#   epochs: 20
-#   learning_rate: 1e-4
-#   min_lr: 1.0e-6
-#   weight_decay: 1.0e-4
-#   grad_clip: 2.0
-#   val_every_n_epochs: 1
-#   save_every_n_epochs: 3
-#   use_weighted_sampler: true
+training:
+  batch_size: 2
+  grad_accum_steps: 4
+  epochs: 20
+  learning_rate: 1e-4
+  min_lr: 1.0e-6
+  weight_decay: 1.0e-4
+  grad_clip: 2.0
+  val_every_n_epochs: 1
+  save_every_n_epochs: 3
+  use_weighted_sampler: true
 
-# evaluation:
-#   threshold: 0.5
-#   low_threshold: 0.3
-#   compute_ipsnr: true
-#   pixel_size_m: 30.0         # Landsat
-#   log_postprocessed: true
+evaluation:
+  threshold: 0.5
+  low_threshold: 0.3
+  compute_ipsnr: true
+  pixel_size_m: 30.0         # Landsat
+  log_postprocessed: true
 
-# postprocess:
-#   method: percentile        # "percentile" "otsu" or "fixed"
-#   percentile: 95
-#   fixed_threshold: 0.5
-#   min_component_size: 4
+postprocess:
+  method: otsu       # "percentile" "otsu" or "fixed"
+  percentile: 95
+  fixed_threshold: 0.5
+  min_component_size: 4
 
-# checkpointing:
-#   checkpoint_dir: checkpoints
-#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice
-#   keep_last_n: 1
-#   best_metric: [val_auprc, val_soft_iou]
+checkpointing:
+  checkpoint_dir: checkpoints
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice
+  keep_last_n: 1
+  best_metric: [val_auprc, val_soft_iou]
 
-# logging:
-#   log_dir: logs
-#   use_wandb: false
+logging:
+  log_dir: logs
+  use_wandb: false
 
-# loss:
-#   type: focal_dice
-#   alpha: 0.85
-#   gamma: 1.5
-#   focal_weight: 1.0
-#   dice_weight: 1.0
-#   smooth: 0.001
+loss:
+  type: focal_dice
+  alpha: 0.85
+  gamma: 1.5
+  focal_weight: 1.0
+  dice_weight: 1.0
+  smooth: 0.001
 
 
 # ===========================================
@@ -126,7 +126,7 @@
 #   log_postprocessed: true
 
 # postprocess:
-#   method: percentile        # "percentile" "otsu" or "fixed"
+#   method: otsu        # "percentile" "otsu" or "fixed"
 #   percentile: 95
 #   fixed_threshold: 0.5
 #   min_component_size: 4
@@ -154,71 +154,218 @@
 # e1 haunet direct focal dice, with cov encoder, dilated targets
 # =============================================================
 
-experiment:
-  name: e1_haunet_direct_focal_dice_dilated
-  branch: landsat
+# experiment:
+#   name: e1_haunet_direct_focal_dice_dilated
+#   branch: landsat
 
-data:
-  bucket_name: wildfire-irp-data-th25
-  output_prefix: processed_dataset_gcp
-  splits_dir: splits
-  heatmap_sigma: 1.5
-  goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
-  goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
-  dem_mean: [0.5949345570310791]
-  dem_std: [0.9305519074216174]
-  heatmap_target: false
-  dilate_target: true
-  dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
-  goes_channels: 3
-  cov_channels: 11
-  num_workers: 2
-  use_stage1_pred: false
-  stage1_channels: 0
+# data:
+#   bucket_name: wildfire-irp-data-th25
+#   output_prefix: processed_dataset_gcp
+#   splits_dir: splits
+#   heatmap_sigma: 1.5
+#   goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+#   goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+#   dem_mean: [0.5949345570310791]
+#   dem_std: [0.9305519074216174]
+#   heatmap_target: false
+#   dilate_target: true
+#   dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
+#   goes_channels: 3
+#   cov_channels: 11
+#   num_workers: 2
+#   use_stage1_pred: false
+#   stage1_channels: 0
 
-model:
-  name: haunet
-  prior_fire_fraction: 0.0006
+# model:
+#   name: haunet
+#   prior_fire_fraction: 0.0006
 
-training:
-  batch_size: 2
-  grad_accum_steps: 4
-  epochs: 20
-  learning_rate: 1e-4
-  min_lr: 1.0e-6
-  weight_decay: 1.0e-4
-  grad_clip: 2.0
-  val_every_n_epochs: 1
-  save_every_n_epochs: 3
-  use_weighted_sampler: true
+# training:
+#   batch_size: 2
+#   grad_accum_steps: 4
+#   epochs: 20
+#   learning_rate: 1e-4
+#   min_lr: 1.0e-6
+#   weight_decay: 1.0e-4
+#   grad_clip: 2.0
+#   val_every_n_epochs: 1
+#   save_every_n_epochs: 3
+#   use_weighted_sampler: true
 
-evaluation:
-  threshold: 0.5
-  low_threshold: 0.3
-  compute_ipsnr: true
-  pixel_size_m: 30.0         # Landsat
-  log_postprocessed: true
+# evaluation:
+#   threshold: 0.5
+#   low_threshold: 0.3
+#   compute_ipsnr: true
+#   pixel_size_m: 30.0         # Landsat
+#   log_postprocessed: true
 
-postprocess:
-  method: otsu      # "percentile" "otsu" or "fixed"
-  # percentile: 95
-  # fixed_threshold: 0.5
-  # min_component_size: 4
+# postprocess:
+#   method: otsu      # "percentile" "otsu" or "fixed"
+#   # percentile: 95
+#   # fixed_threshold: 0.5
+#   # min_component_size: 4
 
-checkpointing:
-  checkpoint_dir: checkpoints
-  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice_dilated
-  keep_last_n: 1
-  best_metric: [val_auprc, val_soft_iou]
+# checkpointing:
+#   checkpoint_dir: checkpoints
+#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice_dilated
+#   keep_last_n: 1
+#   best_metric: [val_auprc, val_soft_iou]
 
-logging:
-  log_dir: logs
-  use_wandb: false
+# logging:
+#   log_dir: logs
+#   use_wandb: false
 
-loss:
-  type: focal_dice
-  alpha: 0.85
-  gamma: 1.5
-  focal_weight: 1.0
-  dice_weight: 1.0
-  smooth: 0.001
+# loss:
+#   type: focal_dice
+#   alpha: 0.85
+#   gamma: 1.5
+#   focal_weight: 1.0
+#   dice_weight: 1.0
+#   smooth: 0.001
+
+# ====================================================
+# e1 haunet direct focal dice, no Landcover
+# ====================================================
+
+# experiment:
+#   name: e1_haunet_direct_focal_dice_no_landcover
+#   branch: landsat
+
+# data:
+#   bucket_name: wildfire-irp-data-th25
+#   output_prefix: processed_dataset_gcp
+#   splits_dir: splits
+#   heatmap_sigma: 1.5
+#   goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+#   goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+#   dem_mean: [0.5949345570310791]
+#   dem_std: [0.9305519074216174]
+#   heatmap_target: false
+#   dilate_target: false
+#   goes_channels: 3
+#   cov_channels: 11
+#   num_workers: 2
+#   use_stage1_pred: false
+#   stage1_channels: 0
+#   drop_landcover: true
+
+# model:
+#   name: haunet
+#   prior_fire_fraction: 0.0006
+
+# training:
+#   batch_size: 2
+#   grad_accum_steps: 4
+#   epochs: 20
+#   learning_rate: 1e-4
+#   min_lr: 1.0e-6
+#   weight_decay: 1.0e-4
+#   grad_clip: 2.0
+#   val_every_n_epochs: 1
+#   save_every_n_epochs: 3
+#   use_weighted_sampler: true
+
+# evaluation:
+#   threshold: 0.5
+#   low_threshold: 0.3
+#   compute_ipsnr: true
+#   pixel_size_m: 30.0         # Landsat
+#   log_postprocessed: true
+
+# postprocess:
+#   method: otsu        # "percentile" "otsu" or "fixed"
+#   percentile: 95
+#   fixed_threshold: 0.5
+#   min_component_size: 4
+
+# checkpointing:
+#   checkpoint_dir: checkpoints
+#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice_no_landcover
+#   keep_last_n: 1
+#   best_metric: [val_auprc, val_soft_iou]
+
+# logging:
+#   log_dir: logs
+#   use_wandb: false
+
+# loss:
+#   type: focal_dice
+#   alpha: 0.85
+#   gamma: 1.5
+#   focal_weight: 1.0
+#   dice_weight: 1.0
+#   smooth: 0.001
+
+# ====================================================
+# e1 haunet direct focal dice, no DEM
+# ====================================================
+
+# experiment:
+#   name: e1_haunet_direct_focal_dice_no_dem
+#   branch: landsat
+
+# data:
+#   bucket_name: wildfire-irp-data-th25
+#   output_prefix: processed_dataset_gcp
+#   splits_dir: splits
+#   heatmap_sigma: 1.5
+#   goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+#   goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+#   dem_mean: [0.5949345570310791]
+#   dem_std: [0.9305519074216174]
+#   heatmap_target: false
+#   dilate_target: false
+#   goes_channels: 3
+#   cov_channels: 11
+#   num_workers: 2
+#   use_stage1_pred: false
+#   stage1_channels: 0
+#   drop_landcover: false
+#   drop_dem: true
+
+# model:
+#   name: haunet
+#   prior_fire_fraction: 0.0006
+
+# training:
+#   batch_size: 2
+#   grad_accum_steps: 4
+#   epochs: 20
+#   learning_rate: 1e-4
+#   min_lr: 1.0e-6
+#   weight_decay: 1.0e-4
+#   grad_clip: 2.0
+#   val_every_n_epochs: 1
+#   save_every_n_epochs: 3
+#   use_weighted_sampler: true
+
+# evaluation:
+#   threshold: 0.5
+#   low_threshold: 0.3
+#   compute_ipsnr: true
+#   pixel_size_m: 30.0         # Landsat
+#   log_postprocessed: true
+
+# postprocess:
+#   method: otsu        # "percentile" "otsu" or "fixed"
+#   percentile: 95
+#   fixed_threshold: 0.5
+#   min_component_size: 4
+
+# checkpointing:
+#   checkpoint_dir: checkpoints
+#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e1_haunet_direct_focal_dice_no_dem
+#   keep_last_n: 1
+#   best_metric: [val_auprc, val_soft_iou]
+
+# logging:
+#   log_dir: logs
+#   use_wandb: false
+
+# loss:
+#   type: focal_dice
+#   alpha: 0.85
+#   gamma: 1.5
+#   focal_weight: 1.0
+#   dice_weight: 1.0
+#   smooth: 0.001
