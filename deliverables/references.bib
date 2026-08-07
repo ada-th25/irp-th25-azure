@@ -111,6 +111,24 @@
   file = {/Users/th25/Zotero/storage/9VSW3KX6/10909570.html}
 }
 
+@inproceedings{davisRelationshipPrecisionRecallROC2006,
+  title = {The Relationship between {{Precision-Recall}} and {{ROC}} Curves},
+  booktitle = {Proceedings of the 23rd International Conference on {{Machine}} Learning},
+  author = {Davis, Jesse and Goadrich, Mark},
+  date = {2006-06-25},
+  series = {{{ICML}} '06},
+  pages = {233--240},
+  publisher = {Association for Computing Machinery},
+  location = {New York, NY, USA},
+  doi = {10.1145/1143844.1143874},
+  url = {https://dl.acm.org/doi/10.1145/1143844.1143874},
+  urldate = {2026-08-07},
+  abstract = {Receiver Operator Characteristic (ROC) curves are commonly used to present results for binary decision problems in machine learning. However, when dealing with highly skewed datasets, Precision-Recall (PR) curves give a more informative picture of an algorithm's performance. We show that a deep connection exists between ROC space and PR space, such that a curve dominates in ROC space if and only if it dominates in PR space. A corollary is the notion of an achievable PR curve, which has properties much like the convex hull in ROC space; we show an efficient algorithm for computing this curve. Finally, we also note differences in the two types of curves are significant for algorithm design. For example, in PR space it is incorrect to linearly interpolate between points. Furthermore, algorithms that optimize the area under the ROC curve are not guaranteed to optimize the area under the PR curve.},
+  isbn = {978-1-59593-383-6},
+  keywords = {precision and recall,ROC},
+  file = {/Users/th25/Zotero/storage/5CWQBRYU/Davis and Goadrich - 2006 - The relationship between Precision-Recall and ROC curves.pdf}
+}
+
 @article{dealmeidapereiraActiveFireDetection2021,
   title = {Active Fire Detection in {{Landsat-8}} Imagery: {{A}} Large-Scale Dataset and a Deep-Learning Study},
   shorttitle = {Active Fire Detection in {{Landsat-8}} Imagery},
@@ -524,6 +542,25 @@
   abstract = {We present SR3, an approach to image Super-Resolution via Repeated Refinement. SR3 adapts denoising diffusion probabilistic models (Ho et al. 2020), (Sohl-Dickstein et al. 2015) to image-to-image translation, and performs super-resolution through a stochastic iterative denoising process. Output images are initialized with pure Gaussian noise and iteratively refined using a U-Net architecture that is trained on denoising at various noise levels, conditioned on a low-resolution input image. SR3 exhibits strong performance on super-resolution tasks at different magnification factors, on faces and natural images. We conduct human evaluation on a standard 8× face super-resolution task on CelebA-HQ for which SR3 achieves a fool rate close to 50\%, suggesting photo-realistic outputs, while GAN baselines do not exceed a fool rate of 34\%. We evaluate SR3 on a 4× super-resolution task on ImageNet, where SR3 outperforms baselines in human evaluation and classification accuracy of a ResNet-50 classifier trained on high-resolution images. We further show the effectiveness of SR3 in cascaded image generation, where a generative model is chained with super-resolution models to synthesize high-resolution images with competitive FID scores on the class-conditional 256×256 ImageNet generation challenge.},
   keywords = {Cascade-based methods,Data models,deep generative models,diffusion models,Diffusion processes,Faces,Image super-resolution,Iterative methods,Noise reduction,Superresolution,Task analysis},
   file = {/Users/th25/Zotero/storage/FCR8SEZB/Saharia et al. - 2023 - Image Super-Resolution via Iterative Refinement.pdf}
+}
+
+@article{saitoPrecisionRecallPlotMore2015,
+  title = {The {{Precision-Recall Plot Is More Informative}} than the {{ROC Plot When Evaluating Binary Classifiers}} on {{Imbalanced Datasets}}},
+  author = {Saito, Takaya and Rehmsmeier, Marc},
+  date = {2015-03-04},
+  journaltitle = {PLOS ONE},
+  volume = {10},
+  number = {3},
+  pages = {e0118432},
+  publisher = {Public Library of Science},
+  issn = {1932-6203},
+  doi = {10.1371/journal.pone.0118432},
+  url = {https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0118432},
+  urldate = {2026-08-07},
+  abstract = {Binary classifiers are routinely evaluated with performance measures such as sensitivity and specificity, and performance is frequently illustrated with Receiver Operating Characteristics (ROC) plots. Alternative measures such as positive predictive value (PPV) and the associated Precision/Recall (PRC) plots are used less frequently. Many bioinformatics studies develop and evaluate classifiers that are to be applied to strongly imbalanced datasets in which the number of negatives outweighs the number of positives significantly. While ROC plots are visually appealing and provide an overview of a classifier's performance across a wide range of specificities, one can ask whether ROC plots could be misleading when applied in imbalanced classification scenarios. We show here that the visual interpretability of ROC plots in the context of imbalanced datasets can be deceptive with respect to conclusions about the reliability of classification performance, owing to an intuitive but wrong interpretation of specificity. PRC plots, on the other hand, can provide the viewer with an accurate prediction of future classification performance due to the fact that they evaluate the fraction of true positives among positive predictions. Our findings have potential implications for the interpretation of a large number of studies that use ROC plots on imbalanced datasets.},
+  langid = {english},
+  keywords = {Bioinformatics,Caenorhabditis elegans,Exponential functions,Genome-wide association studies,imbalanced data,Interpolation,Measurement,MicroRNAs,precision and recall,Support vector machines},
+  file = {/Users/th25/Zotero/storage/YMJPCBM2/Saito and Rehmsmeier - 2015 - The Precision-Recall Plot Is More Informative than the ROC Plot When Evaluating Binary Classifiers o.pdf}
 }
 
 @online{salehiTverskyLossFunction2017,
