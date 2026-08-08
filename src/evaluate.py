@@ -46,7 +46,7 @@ CSV_COLUMNS = [
     "sample_id", "iou", "iou_t03", "soft_iou", "ipsnr", "boundary_f1",
     "precision", "recall", "pixel_f1", "auprc", "centroid_dist_m",
     "pp_iou", "pp_boundary_f1", "pp_precision", "pp_recall",
-    "pp_pixel_f1", "pp_centroid_dist_m",
+    "pp_pixel_f1", "pp_centroid_dist_m", "pp_ipsnr",
 ]
 
 
@@ -115,6 +115,13 @@ def evaluate_sample(model, batch, device, threshold, low_threshold,
         row["pp_recall"] = pp_pr["recall"]
         row["pp_pixel_f1"] = pp_pr["f1"]
         row["pp_centroid_dist_m"] = compute_centroid_distance(pseudo_logits, target, pixel_size_m=pixel_size_m)
+
+        # IPSNR computed on the postprocessed (e.g. Otsu) binary mask
+        if compute_ipsnr_flag:
+            pp_ipsnr_val = compute_ipsnr(pseudo_logits, target, threshold=0.5)
+            row["pp_ipsnr"] = pp_ipsnr_val if pp_ipsnr_val != float("inf") else float("nan")
+        else:
+            row["pp_ipsnr"] = float("nan")
 
     return row
 
