@@ -238,14 +238,14 @@ The main encoder-decoder path produces low-resolution feature representations ($
 
 \subsubsection{Architecture Selection Rationale}
 HAUNet was selected as one of the architectures for the following reasons: 
-\begin{itemize}
-    \item It uses dual attention: channel attention to capture global information across feature channels and spatial attention to capture spatial relationships.
-    \item Its CIM used as skip connections. Skip connections used in conventional U-Net concatenate features at matching spatial resolution, but this assume they are semantically comparable. CIM addresses this by explicitly bridging semantic and resolution gaps between encoder outputs at different scales prior to fusion.
-    \item Both the autoencoder baseline and HAUNet share the same underlying encoder-decoder-with-skip-connections structure. This allows the comparison between the two models to directly isolate the contribution of HAUNet's attention mechanisms and skip-connection design.
-\end{itemize}
+\begin{enumerate}
+    \item It uses dual attention: channel attention to capture global information across feature channels and spatial attention to capture spatial relationships. This is useful for wildfire data, where the fire signal is sparse and localised, but the physical context (e.g. terrain, landcover) is important for accurate downscaling.
+    \item Its CIM used as skip connections. Skip connections used in conventional U-Net concatenate features at matching spatial resolution, but this assume they are semantically comparable. CIM addresses this by explicitly bridging semantic and resolution gaps between encoder outputs at different scales prior to fusion. This helps to better integrate and learn representation at different scales, which is useful for super-resolution tasks like this (downscaling by $66.7\times$).
+    \item Both the autoencoder baseline (\ref{sec:autoencoder}) and HAUNet share the similar underlying encoder-decoder-with-skip-connections structure. This allows the comparison between the two models to directly isolate the contribution of HAUNet's attention mechanisms and skip-connection design.
+\end{enumerate}
 
-\subsection{Autoencoder Baseline}
-The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024}, adapted to this project to concatenate the covariates with the fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, shown in Figure \ref{fig:autoencoder}.
+\subsection{Autoencoder Baseline}\label{sec:autoencoder}
+The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024} to downscale fire data from GOES to VIIRS resolution. Here, it is adapted to this project to concatenate the covariates with the fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, shown in Figure \ref{fig:autoencoder}.
 
 \begin{figure}[htbp]
     \centering
@@ -254,7 +254,7 @@ The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLe
     \label{fig:autoencoder}
 \end{figure}
 
-This baseline is trained under identical conditions to HAUNet (same loss, optimiser, data splits, and covariate set) so that any performance gap are attributable to architectural differences. It establishes a lower bound against which HAUNet's improvement can be quantified, and isolating whether performance gains stem specifically from attention and full-resolution covariate processing, or would be achievable with a standard convolutional model.
+This baseline is trained under identical conditions to HAUNet (same loss, optimiser, data splits, and covariate set) so that any performance gap are attributable to architectural differences. It establishes a lower bound against which HAUNet's improvement can be quantified, and isolating whether performance gains is from attention and full-resolution covariate processing, or would be achievable with a standard convolutional model.
 
 \subsection{Loss Functions}
 \subsubsection{Focal Dice Loss}
@@ -292,11 +292,12 @@ where $\epsilon$ is a smoothing term preventing division by zero.
 Model development and training were conducted on a GCP Vertex AI Workbench instance equipped with an NVIDIA L4 GPU, 23.7 GB VRAM, 32 GB RAM, 8 vCPUs. Data generation and preprocessing were run as separate CPU-only jobs querying GCS directly.
 
 \subsection{Experimental Design}
-To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assessed under the following ablations, in addition to the primary direct-vs-cascaded pipeline comparison:
+HAUNet was assessed under the following ablations, in addition to the primary direct-vs-cascaded pipeline comparison:
 \begin{enumerate}
-    \item with and without the Covariate Pyramid Encoder
-    \item with and without DEM as an input covariate
+    \item with and without the Covariate Pyramid Encoder.
+    \item with and without DEM as an input covariate.
     \item with and without land cover as an input covariate.
+    \item with and without target dilation (to assess the effect of target representation on model performance).
 \end{enumerate}
 
 In the cascaded pipeline, Stage 1 (GOES to VIIRS) is trained on GOES/VIIRS pairs to predict a VIIRS-resolution ($375$m) fire mask from the GOES input. Stage 2 (VIIRS to Landsat) is intended to further downscale this to Landsat resolution ($30$m). However, VIIRS and Landsat overpasses times do not overlap, so matching VIIRS/Landsat pairs are not directly available in the same way GOES/VIIRS pairs are. To address this temporal mismatch, Stage 2 is instead trained using the trained Stage 1 model's predictions on GOES/Landsat dataset as inputs, rather than ground-truth VIIRS observations. For each GOES/Landsat pair, the Stage 1 model produces a predicted VIIRS-resolution fire mask from the temporally matched GOES input, and this prediction is paired with the corresponding Landsat ground truth to train Stage 2. This ensures both stages of the cascaded pipeline operate on inputs available at inference time (i.e. Stage 2 never has access to real VIIRS observations at test time either), avoiding a train/inference mismatch that would occur if Stage 2 were trained on ground-truth VIIRS data unavailable in a genuinely cascaded operational setting.
@@ -331,7 +332,7 @@ E4  & Autoencoder & Cascaded       & Full                             & Baseline
     \begin{equation}\label{eq:auprc}
         \text{AUPRC} = \sum_{k} (R_k - R_{k-1}) P_k
     \end{equation}
-    where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
+    where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point. This is selected as the primary metric for evaluation as it is threshold-independent and less sensitive to extreme class imbalance. It captures the trade-off between precision and recall across all thresholds.
     \item \textbf{Boundary F1:} Restricts precision and recall to fire-perimeter only, obtained by morphological erosion of the predicted and ground truth masks. This isolates edge/shape accuracy from interior-region, which pixel-level F1 can mask:
     \begin{equation}\label{eq:boundary_f1}
         \text{F1}_b = 2 \cdot \frac{\text{Prec}_b \cdot \text{Rec}_b}{\text{Prec}_b + \text{Rec}_b + \epsilon}
@@ -349,7 +350,7 @@ E4  & Autoencoder & Cascaded       & Full                             & Baseline
     \begin{equation}\label{eq:irmse}
     IRMSE = \sqrt{\frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2 \cdot I}{\sum_{i=1}^{n} I}} \quad \text{where } I = \begin{cases} 1, & y_i \cdot \hat{y}_i \neq 0 \\ 0, & \text{otherwise} \end{cases}
     \end{equation}
-    where $y_i$ and $\hat{y}_i$ are the ground truth and predicted pixel values, and $I$ is an indicator function that selects only pixels where both the prediction and ground truth are non-zero.
+    where $y_i$ and $\hat{y}_i$ are the ground truth and predicted pixel values, and $I$ is an indicator function that selects only pixels where both the prediction and ground truth are non-zero. This is used over standard PSNR because the extreme sparsity of fire pixels means that PSNR is dominated by background pixels.
 \end{itemize}
 
 For Boundary F1, Precision, Recall, and IPSNR, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled masks (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
@@ -358,7 +359,7 @@ For Boundary F1, Precision, Recall, and IPSNR, the evaluation is performed on po
     \sigma_B^2(t) = \omega_0(t)\,\omega_1(t)\,\left(\mu_0(t) - \mu_1(t)\right)^2, \qquad t^* = \operatorname*{arg\,max}_{t} \; \sigma_B^2(t)
 \end{equation}
 
-Otsu is used over a fixed threshold (e.g. 0.5) because the extreme class imbalance means that the model may predict low probabilities for the positive class, and a fixed threshold could lead to poor separation.
+Otsu threshold is calculated and applied per patch. Otsu is used over a fixed threshold (e.g. 0.5) because the extreme class imbalance means that the model may predict low probabilities for the positive class, and a fixed threshold could lead to poor separation.
 
 Due to the extreme rarity of the positive class, absolute metric values are difficult to interpret without a reference point. The following baselines were used:
 \begin{enumerate}
@@ -374,13 +375,17 @@ The best model checkpoint for final evaluation was selected based on the highest
 
 \section{Results}
 
+The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:evaluation_results}.
+
 \input{tables/evaluation_table.tex}
 
-Note that IPSNR, computed only over the intersection of predicted and ground-truth regions, is near-zero for samples with no overlap. Consequently, its mean is sensitive to the frequency with which a model achieves overlap, independent of prediction quality. Configurations with higher recall (e.g. No DEM, No Land Cover) achieved overlap on more test samples (7/121 and 10/121, respectively, vs.\ 2/121 for the full model) and consequently higher mean IPSNR, despite much lower AUPRC and boundary F1. When calculated only on samples with nonzero IoU, mean IPSNR is comparable across configurations (1.95-3.41 dB), indicating this metric primarily reflects detection frequency rather than reconstruction fidelity under this extreme sparsity, and should be interpreted alongside AUPRC and boundary F1 rather than in isolation.
-
-The Boundary F1, Precision and Recall are calculated for post processed outputs using Otsu's thresholding.
+IPSNR is computed only over the union of predicted and ground-truth fire regions and is therefore undefined for samples with no overlap between prediction and target. Consequently, its mean is sensitive to the frequency with which a model achieves overlap, independent of prediction quality. Therefore mean IPSNR is calculated only over samples with nonzero IoU, and the number of contributing samples shown in parentheses. The IPSNR values are low across all configurations, likely due to the extreme sparsity of fire pixels, meaning that even with opverlap, the predicted and ground-truth regions are often small.
 
 \section{Discussions} \label{sec:discussion}
+
+From the direct HAUNet experiments in Table \ref{tab:evaluation_results}, the use of both ovariates doubled AUPRC (0.54/0.50 $\to$ 0.103). Ablation of DEM or land cover individually reduced performance, but this was greater observed in no DEM than land cover, suggesting that terrain information is more important for accurate fire downscaling than land cover in this context.
+
+The removal of the covariate pyramid encoder (AUPRC 0.0096) is nearly equivalent to the full model (0.0103).
 
 A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. This intermediate target is model-derived rather than observational. A consequence is that any error in Stage 1 propagates into Stage 2's training, meaning Stage 2 also learns to downscale Stage 1's errors alongside fire information. This is a direct counterpoint to the motivation for cascaded downscaling: while cascading may reduce error from the resolution gap itself, it introduces source of error from stage-to-stage prediction dependency.
 
