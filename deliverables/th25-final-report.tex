@@ -1,6 +1,7 @@
 \documentclass[a4paper, 11pt]{article} % 11pt for better readability with standard fonts
 
 % Packages
+\usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{authblk}
@@ -300,7 +301,7 @@ To evaluate the contribution of the Covariate Pyramid Encoder, HAUNet was assess
 
 In the cascaded pipeline, Stage 1 (GOES to VIIRS) is trained on GOES/VIIRS pairs to predict a VIIRS-resolution ($375$m) fire mask from the GOES input. Stage 2 (VIIRS to Landsat) is intended to further downscale this to Landsat resolution ($30$m). However, VIIRS and Landsat overpasses times do not overlap, so matching VIIRS/Landsat pairs are not directly available in the same way GOES/VIIRS pairs are. To address this temporal mismatch, Stage 2 is instead trained using the trained Stage 1 model's predictions on GOES/Landsat dataset as inputs, rather than ground-truth VIIRS observations. For each GOES/Landsat pair, the Stage 1 model produces a predicted VIIRS-resolution fire mask from the temporally matched GOES input, and this prediction is paired with the corresponding Landsat ground truth to train Stage 2. This ensures both stages of the cascaded pipeline operate on inputs available at inference time (i.e. Stage 2 never has access to real VIIRS observations at test time either), avoiding a train/inference mismatch that would occur if Stage 2 were trained on ground-truth VIIRS data unavailable in a genuinely cascaded operational setting.
 
-Dilation was investigated for potentially mitigating the severe class imbalance as it may help the model to learn fire regions more effectively. However, dilation can blur the boundaries of fire regions, potentially leading to less precise predictions. The effectiveness of this approach was evaluated through experiments comparing models trained with and without target dilation.
+Dilation was investigated for potentially mitigating the severe class imbalance as it may help the model to learn fire regions more effectively. However, dilation can blur the boundaries of fire regions, potentially leading to less precise predictions. The effectiveness of this approach was evaluated through experiments comparing models trained with and without target dilation. Dilation is performed by applying max pooling to the target masks (kernel size $k=7$ for Landsat). For this experiment, model training and validation is conducted on dilated targets, but evaluation is performed on the original, undilated targets.
 
 Each experiment (architecture, covariate set, pipeline stage) was defined by YAML configuration files specifying model hyperparameters, data paths, loss weights, and training settings for reproducibility.
 
@@ -326,31 +327,38 @@ E4  & Autoencoder & Cascaded       & Full                             & Baseline
 
 \subsection{Evaluation Metrics}
 \begin{itemize}
-    \item \textbf{Soft IOU (Intersection over Union):} Measures the overlap between predicted and ground truth fire masks, accounting for the model's continuous outputs:
-    \begin{equation}\label{eq:iou}
-        \text{IoU} = \frac{\sum_{i,j} \tilde{Y}_{i,j} Y_{i,j}}{\sum_{i,j} \left( \tilde{Y}_{i,j} + Y_{i,j} - \tilde{Y}_{i,j} Y_{i,j} \right) + \epsilon}
+    \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} Measures the performance of the model across different thresholds, making it suitable for imbalanced datasets (\cite{davisRelationshipPrecisionRecallROC2006}):
+    \begin{equation}\label{eq:auprc}
+        \text{AUPRC} = \sum_{k} (R_k - R_{k-1}) P_k
     \end{equation}
-    This allows for a threshold-independent evaluation.
-    \item \textbf{Precision and Recall:} (\cite{saitoPrecisionRecallPlotMore2015}) Evaluates the model's ability to correctly identify fire pixels (precision) and capture all true fire pixels (recall):
-    \begin{equation}\label{eq:precision_recall}
-        \text{Precision} = \frac{TP}{TP + FP + \epsilon}, \quad \text{Recall} = \frac{TP}{TP + FN + \epsilon}
-    \end{equation}
-    Where $TP$, $FP$, and $FN$ represent true positive, false positive, and false negative counts across the spatial grid, and $\epsilon = 10^{-8}$ prevents division by zero.
-    \item \textbf{Pixel-level F1:} Evaluates overall segmentation accuracy from the pixel-level precision and recall above:
-    \begin{equation}\label{eq:f1}
-        \text{F1} = 2 \cdot \frac{\text{Prec} \cdot \text{Rec}}{\text{Prec} + \text{Rec} + \epsilon}
-    \end{equation}
+    where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
     \item \textbf{Boundary F1:} Restricts precision and recall to fire-perimeter only, obtained by morphological erosion of the predicted and ground truth masks. This isolates edge/shape accuracy from interior-region, which pixel-level F1 can mask:
     \begin{equation}\label{eq:boundary_f1}
         \text{F1}_b = 2 \cdot \frac{\text{Prec}_b \cdot \text{Rec}_b}{\text{Prec}_b + \text{Rec}_b + \epsilon}
     \end{equation}
     where $\text{Prec}_b$ and $\text{Rec}_b$ are precision and recall computed only over boundary pixels of the predicted and ground truth masks.
-    \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} (\cite{davisRelationshipPrecisionRecallROC2006}) Measures the performance of the model across different thresholds:
-    \begin{equation}\label{eq:auprc}
-        \text{AUPRC} = \sum_{k} (R_k - R_{k-1}) P_k
+    \item \textbf{Precision and Recall:} Evaluates the model's ability to correctly identify fire pixels (precision) and capture all true fire pixels (recall) (\cite{saitoPrecisionRecallPlotMore2015}):
+    \begin{equation}\label{eq:precision_recall}
+        \text{Precision} = \frac{TP}{TP + FP + \epsilon}, \quad \text{Recall} = \frac{TP}{TP + FN + \epsilon}
     \end{equation}
-    where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point.
+    Where $TP$, $FP$, and $FN$ represent true positive, false positive, and false negative counts across the spatial grid, and $\epsilon = 10^{-8}$ prevents division by zero.
+    \item \textbf{IPSNR (Intersection Peak Signal-to-Noise Ratio):} Measures the quality of predicted outputs within the intersection of predicted and ground truth fire regions (\cite{badhanDeepLearningApproach2024}):
+    \begin{equation}\label{eq:ipsnr}
+    IPSNR = \log_{10}\left(\frac{\max(val)}{IRMSE}\right)
+    \end{equation}
+    \begin{equation}\label{eq:irmse}
+    IRMSE = \sqrt{\frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2 \cdot I}{\sum_{i=1}^{n} I}} \quad \text{where } I = \begin{cases} 1, & y_i \cdot \hat{y}_i \neq 0 \\ 0, & \text{otherwise} \end{cases}
+    \end{equation}
+    where $y_i$ and $\hat{y}_i$ are the ground truth and predicted pixel values, and $I$ is an indicator function that selects only pixels where both the prediction and ground truth are non-zero.
 \end{itemize}
+
+For Boundary F1, Precision, Recall, and IPSNR, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled masks (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
+
+\begin{equation}\label{eq:otsu}
+    \sigma_B^2(t) = \omega_0(t)\,\omega_1(t)\,\left(\mu_0(t) - \mu_1(t)\right)^2, \qquad t^* = \operatorname*{arg\,max}_{t} \; \sigma_B^2(t)
+\end{equation}
+
+Otsu is used over a fixed threshold (e.g. 0.5) because the extreme class imbalance means that the model may predict low probabilities for the positive class, and a fixed threshold could lead to poor separation.
 
 Due to the extreme rarity of the positive class, absolute metric values are difficult to interpret without a reference point. The following baselines were used:
 \begin{enumerate}
@@ -358,7 +366,7 @@ Due to the extreme rarity of the positive class, absolute metric values are diff
     \item a constant-prevalence predictor, assigning every pixel the measured test-set fire-pixel prevalence.
 \end{enumerate}
 
-$2.$ is the theoretically expected value of AUPRC under a classifier with no spatial discriminative ability, since a scorer that assigns identical scores to every pixel yields precision equal to prevalence at every recall level. Model performance is reported alongside both baselines.
+$2.$ is the theoretically expected value of AUPRC under a classifier with no discriminative ability. Model performance is reported alongside both baselines.
 
 While target dilation were used for the training target to mitigate class imbalance during optimisation, all evaluation metrics were computed against the original, undilated binary target masks. This ensures reported performance reflects the model's ability to predict at native target resolution.
 
@@ -366,12 +374,18 @@ The best model checkpoint for final evaluation was selected based on the highest
 
 \section{Results}
 
+\input{tables/evaluation_table.tex}
+
+Note that IPSNR, computed only over the intersection of predicted and ground-truth regions, is near-zero for samples with no overlap. Consequently, its mean is sensitive to the frequency with which a model achieves overlap, independent of prediction quality. Configurations with higher recall (e.g. No DEM, No Land Cover) achieved overlap on more test samples (7/121 and 10/121, respectively, vs.\ 2/121 for the full model) and consequently higher mean IPSNR, despite much lower AUPRC and boundary F1. When calculated only on samples with nonzero IoU, mean IPSNR is comparable across configurations (1.95-3.41 dB), indicating this metric primarily reflects detection frequency rather than reconstruction fidelity under this extreme sparsity, and should be interpreted alongside AUPRC and boundary F1 rather than in isolation.
+
+The Boundary F1, Precision and Recall are calculated for post processed outputs using Otsu's thresholding.
+
 \section{Discussions} \label{sec:discussion}
 
 A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. This intermediate target is model-derived rather than observational. A consequence is that any error in Stage 1 propagates into Stage 2's training, meaning Stage 2 also learns to downscale Stage 1's errors alongside fire information. This is a direct counterpoint to the motivation for cascaded downscaling: while cascading may reduce error from the resolution gap itself, it introduces source of error from stage-to-stage prediction dependency.
 
 \section{Conclusions}
-Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes.
+Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative and transformer-based models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes. The project could be extended to experiment with different architectures at each stage of the cascaded pipeline, or explore multi-stage cascades with more than two stages to further reduce the resolution gap at each step.
 
 \printbibliography
 

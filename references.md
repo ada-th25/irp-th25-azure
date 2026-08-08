@@ -79,6 +79,12 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Author/Organisation:** Sik-Ho Tsang
     * **Usage:** Understand how the variation of focal loss used in CornerNet works.
 
+* **Wikipedia**
+    * **Date Used:** 08/08/2026
+    * **URL:** https://en.wikipedia.org/wiki/Otsu%27s_method
+    * **Author/Organisation:** Wikipedia
+    * **Usage:** Understand how Otsu thresholding works.
+
 # AI Usage
 
 * **Tool:** Anthropic Claude (Sonnet 4.6)
@@ -351,3 +357,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Update plotting code in `notebooks/explore_dataset.ipynb` to choose random data patch. Additionally plots random VIIRS/Landsat data with original vs dilated targets.
     * **Prompt:** (pasting existing plotting code in notebook, and the dilation logic in wildfire_dataset) "Change this so that it plots random data ids, and also plot all the GOES channels. Additionally, plot original vs dilated (for both Landsat and VIIRS)."
     * **Human Modification:** Rewrite configuration to match GCP bucket details.
+
+* **Tool:** Google Gemini (3.6)
+    * **Date Used:** 07/08/2026
+    * **Scope:** Write code that loads JSON files from `logs/` and explore the results summary data. This is written in `notebooks/explore_results_summary.ipynb`
+    * **Prompt:** (uploading examlple JSON file) "Write code to explore/visualise these results summaries. Primary metric include auprc, soft iou etc. but omit the centroid distance metric."
