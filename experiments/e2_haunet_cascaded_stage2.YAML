@@ -1,9 +1,10 @@
-# experiments/e2_haunet_cascaded_stage2.yaml
+# experiments/e2_haunet_cascaded_stage2.YAML
 # ===================================
 # Stage 2 of the cascaded pipeline (VIIRS-pred -> Landsat), HAUNet.
 experiment:
-  name: e2_haunet_cascaded_stage2_focal_dice_v2
+  name: e2_haunet_cascaded_stage2_focal_dice
   branch: landsat
+  
 data:
   bucket_name: wildfire-irp-data-th25
   output_prefix: processed_dataset_gcp
@@ -18,13 +19,14 @@ data:
   cov_channels: 11
   num_workers: 4
   use_stage1_pred: true
-  stage1_pred_key: stage1_pred_v2
+  stage1_pred_key: stage1_pred_auprc
   stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
                             #     and concatenated as 1 extra input channel
 model:
   name: haunet
   drop_out_rate: 0.1
   prior_fire_fraction: 0.0006
+  
 training:
   batch_size: 2
   grad_accum_steps: 4
@@ -36,37 +38,107 @@ training:
   val_every_n_epochs: 1
   save_every_n_epochs: 3
   use_weighted_sampler: true
+  
 evaluation:
   threshold: 0.5
   low_threshold: 0.3
   compute_ipsnr: true
   pixel_size_m: 30.0        # Landsat, not VIIRS's 384.0
-  log_postprocessed: false
+  log_postprocessed: true
+  
 postprocess:
-  method: percentile
+  method: otsu
   percentile: 99.5
   fixed_threshold: 0.5
   min_component_size: 4
+  
 checkpointing:
   checkpoint_dir: checkpoints
-  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_v2
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice
   keep_last_n: 1
   best_metric: [val_auprc, val_soft_iou]
+  
 logging:
   log_dir: logs
   use_wandb: false
-#loss:
-  #type: focal_dice
-  #alpha: 0.85
-  #gamma: 1.5
-  #focal_weight: 1.0
-  #dice_weight: 1.0
-  #smooth: 0.001
 
 loss:
   type: focal_dice
-  alpha: 0.9
-  gamma: 2.5
-  focal_weight: 0.5
-  dice_weight: 1.5      # weight dice higher: it's more forgiving of near-miss localization than focal
+  alpha: 0.85
+  gamma: 1.5
+  focal_weight: 1.0
+  dice_weight: 1.0
   smooth: 0.001
+
+# ====================================================
+# Focal dice, dilated
+# ====================================================
+# experiment:
+#   name: e2_haunet_cascaded_stage2_focal_dice_dilated
+#   branch: landsat
+  
+# data:
+#   bucket_name: wildfire-irp-data-th25
+#   output_prefix: processed_dataset_gcp
+#   splits_dir: splits
+#   goes_mean: [304.15516439874966, 294.2263611594836, 9.928803239266077] # GOES stats calculated only from the train dataset
+#   goes_std: [9.813223984663743, 9.223821451411734, 8.382418136498373]
+#   dem_mean: [0.5949345570310792]
+#   dem_std: [0.9305519074216174]
+#   heatmap_target: false
+#   dilate_target: true
+#   dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
+#   goes_channels: 3
+#   cov_channels: 11
+#   num_workers: 4
+#   use_stage1_pred: true
+#   stage1_pred_key: stage1_pred_auprc
+#   stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
+#                             #     and concatenated as 1 extra input channel
+# model:
+#   name: haunet
+#   drop_out_rate: 0.1
+#   prior_fire_fraction: 0.0006
+  
+# training:
+#   batch_size: 2
+#   grad_accum_steps: 4
+#   epochs: 20
+#   learning_rate: 1.0e-4
+#   min_lr: 1.0e-6
+#   weight_decay: 5.0e-4
+#   grad_clip: 2.0
+#   val_every_n_epochs: 1
+#   save_every_n_epochs: 3
+#   use_weighted_sampler: true
+  
+# evaluation:
+#   threshold: 0.5
+#   low_threshold: 0.3
+#   compute_ipsnr: true
+#   pixel_size_m: 30.0        # Landsat, not VIIRS's 384.0
+#   log_postprocessed: true
+  
+# postprocess:
+#   method: otsu
+#   percentile: 99.5
+#   fixed_threshold: 0.5
+#   min_component_size: 4
+  
+# checkpointing:
+#   checkpoint_dir: checkpoints
+#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_dilated
+#   keep_last_n: 1
+#   best_metric: [val_auprc, val_soft_iou]
+  
+# logging:
+#   log_dir: logs
+#   use_wandb: false
+
+# loss:
+#   type: focal_dice
+#   alpha: 0.85
+#   gamma: 1.5
+#   focal_weight: 1.0
+#   dice_weight: 1.0
+#   smooth: 0.001
