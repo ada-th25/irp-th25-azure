@@ -155,7 +155,9 @@ def main():
     ckpt = None
     model_cfg = cfg
     if args.checkpoint:
-        ckpt = torch.load(args.checkpoint, map_location=device)
+        gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
+        resolved_checkpoint = resolve_checkpoint_path(args.checkpoint, bucket_name, gcs_ckpt_prefix)
+        ckpt = torch.load(resolved_checkpoint, map_location=device)
         if "config" in ckpt:
             model_cfg = ckpt["config"]
         else:

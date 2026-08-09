@@ -17,6 +17,8 @@ import csv
 import json
 import sys
 from pathlib import Path
+from google.cloud import storage
+from google.auth import default
 
 import numpy as np
 import torch
@@ -61,6 +63,35 @@ def build_model(cfg, device):
         use_cov_pyramid=cfg["model"].get("use_cov_pyramid", True),
     ).to(device)
     return model
+
+def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
+    """
+    If checkpoint_path exists locally, use it as-is. Otherwise, attempt to
+    download the matching file from GCS (assuming the same filename lives
+    under gcs_ckpt_prefix) before failing.
+    """
+    local_path = Path(checkpoint_path)
+    if local_path.exists():
+        return str(local_path)
+
+    print(f"  [INFO] Checkpoint not found locally at {local_path} -- "
+          f"attempting to download from GCS...")
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    credentials, _ = default()
+    bucket = storage.Client(credentials=credentials).bucket(bucket_name)
+    gcs_blob_path = f"{gcs_ckpt_prefix}/{local_path.name}"
+    blob = bucket.blob(gcs_blob_path)
+
+    if not blob.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found locally ({local_path}) or in GCS "
+            f"(gs://{bucket_name}/{gcs_blob_path}). Check the path is correct."
+        )
+
+    blob.download_to_filename(str(local_path))
+    print(f"  [GCS] Downloaded checkpoint → {local_path}")
+    return str(local_path)
 
 
 @torch.no_grad()
@@ -265,7 +296,9 @@ def main():
     # ------------------------------------------------------------------
     # Model
     # ------------------------------------------------------------------
-    ckpt = torch.load(args.checkpoint, map_location=device)
+    gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
+    resolved_checkpoint = resolve_checkpoint_path(args.checkpoint, bucket_name, gcs_ckpt_prefix)
+    ckpt = torch.load(resolved_checkpoint, map_location=device)
 
     model_cfg = ckpt.get("config", cfg)
     if "config" not in ckpt:
