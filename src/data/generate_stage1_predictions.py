@@ -26,6 +26,7 @@ import torch
 import torch.nn.functional as F
 import yaml
 from google.cloud import storage
+from google.auth import default
 
 sys.path.append(str(Path(__file__).parent.parent))
 from wildfire_dataset import WildfireDataset, load_split_ids
@@ -36,8 +37,39 @@ MODEL_REGISTRY = {
     "autoencoder": "models.autoencoder",
 }
 
+def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
+    """
+    If checkpoint_path exists locally, use it as-is. Otherwise, attempt to
+    download the matching file from GCS (assuming the same filename lives
+    under gcs_ckpt_prefix) before failing.
+    """
+    local_path = Path(checkpoint_path)
+    if local_path.exists():
+        return str(local_path)
 
-def load_stage1_model(ckpt_path, device):
+    print(f"  [INFO] Checkpoint not found locally at {local_path} -- "
+          f"attempting to download from GCS...")
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    credentials, _ = default()
+    bucket = storage.Client(credentials=credentials).bucket(bucket_name)
+    gcs_blob_path = f"{gcs_ckpt_prefix}/{local_path.name}"
+    blob = bucket.blob(gcs_blob_path)
+
+    if not blob.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found locally ({local_path}) or in GCS "
+            f"(gs://{bucket_name}/{gcs_blob_path}). Check the path is correct."
+        )
+
+    blob.download_to_filename(str(local_path))
+    print(f"  [GCS] Downloaded checkpoint → {local_path}")
+    return str(local_path)
+
+
+def load_stage1_model(ckpt_path, device, bucket_name=None, gcs_ckpt_prefix=None):
+    if bucket_name and gcs_ckpt_prefix:
+        ckpt_path = resolve_checkpoint_path(ckpt_path, bucket_name, gcs_ckpt_prefix)
     ckpt = torch.load(ckpt_path, map_location=device)
     cfg = ckpt["config"]
     model_name = cfg["model"]["name"]
@@ -104,11 +136,14 @@ def main():
     bucket_name = cfg["data"]["bucket_name"]
     output_prefix = cfg["data"]["output_prefix"]
     splits_dir = cfg["data"].get("splits_dir", "splits")
+    gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    model, stage1_cfg, stage1_epoch, stage1_best_metric, stage1_best_scores = load_stage1_model(args.stage1_ckpt, device)
+    model, stage1_cfg, stage1_epoch, stage1_best_metric, stage1_best_scores = load_stage1_model(
+        args.stage1_ckpt, device, bucket_name=bucket_name, gcs_ckpt_prefix=gcs_ckpt_prefix
+    )
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
