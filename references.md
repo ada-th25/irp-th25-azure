@@ -362,3 +362,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 07/08/2026
     * **Scope:** Write code that loads JSON files from `logs/` and explore the results summary data. This is written in `notebooks/explore_results_summary.ipynb`
     * **Prompt:** (uploading examlple JSON file) "Write code to explore/visualise these results summaries. Primary metric include auprc, soft iou etc. but omit the centroid distance metric."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 09/08/2026
+    * **Scope:** Edit `src/evaluate.py`, `src/data/generate_stage1_predictions.py` and `src/utils/plot_predictions.py` to fetch checkpoint from GCS bucket if not provided locally.
+    * **Prompt:** (pasting existing prediction and evaluation scripts) "Edit this so that if the checkpoints are not found locally, it fetches it from the GCS bucket."
