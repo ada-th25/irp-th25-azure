@@ -1,8 +1,12 @@
 # experiments/e2_haunet_cascaded_stage2.YAML
 # ===================================
 # Stage 2 of the cascaded pipeline (VIIRS-pred -> Landsat), HAUNet.
+
+# ==========================================================================================
+# Focal dice, dilated targets, uses stage 1 prediction from model trained on undilated targets
+# ==========================================================================================
 experiment:
-  name: e2_haunet_cascaded_stage2_focal_dice
+  name: e2_haunet_cascaded_stage2_focal_dice_single_dilated
   branch: landsat
   
 data:
@@ -14,12 +18,13 @@ data:
   dem_mean: [0.5949345570310792]
   dem_std: [0.9305519074216174]
   heatmap_target: false
-  dilate_target: false
+  dilate_target: true
+  dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
   goes_channels: 3
   cov_channels: 11
   num_workers: 4
   use_stage1_pred: true
-  stage1_pred_key: stage1_pred_auprc
+  stage1_pred_key: haunet_focal_dice_stage1_pred
   stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
                             #     and concatenated as 1 extra input channel
 model:
@@ -54,7 +59,7 @@ postprocess:
   
 checkpointing:
   checkpoint_dir: checkpoints
-  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice
+  gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_single_dilated
   keep_last_n: 1
   best_metric: [val_auprc, val_soft_iou]
   
@@ -70,11 +75,11 @@ loss:
   dice_weight: 1.0
   smooth: 0.001
 
-# ====================================================
-# Focal dice, dilated
-# ====================================================
+# ==========================================================================================
+# Focal dice, dilated targets, uses stage 1 prediction from model trained on dilated targets
+# ==========================================================================================
 # experiment:
-#   name: e2_haunet_cascaded_stage2_focal_dice_dilated
+#   name: e2_haunet_cascaded_stage2_focal_dice_double_dilated
 #   branch: landsat
   
 # data:
@@ -92,7 +97,7 @@ loss:
 #   cov_channels: 11
 #   num_workers: 4
 #   use_stage1_pred: true
-#   stage1_pred_key: stage1_pred_auprc
+#   stage1_pred_key: haunet_focal_dice_stage1_pred
 #   stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
 #                             #     and concatenated as 1 extra input channel
 # model:
@@ -127,7 +132,7 @@ loss:
   
 # checkpointing:
 #   checkpoint_dir: checkpoints
-#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_dilated
+#   gcs_checkpoint_prefix: processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage2_focal_dice_double_dilated
 #   keep_last_n: 1
 #   best_metric: [val_auprc, val_soft_iou]
   

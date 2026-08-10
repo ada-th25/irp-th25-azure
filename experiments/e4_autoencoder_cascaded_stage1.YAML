@@ -46,7 +46,7 @@ evaluation:
   threshold: 0.5
   low_threshold: 0.3
   compute_ipsnr: true
-  pixel_size_m: 30.0         # Landsat
+  pixel_size_m: 384.0             # VIIRS
   log_postprocessed: true
 
 postprocess:
