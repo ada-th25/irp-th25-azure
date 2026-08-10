@@ -7,43 +7,45 @@ import json
 from google.cloud import storage
 from google.auth import default
 from src.data.validity import compute_validity
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BUCKET_NAME = "wildfire-irp-data-th25"
 OUTPUT_PREFIX = "processed_dataset_gcp"
 
-def enrich_branch(bucket, branch: str, dry_run: bool):
+def process_blob(bucket, blob, dry_run):
+    if not blob.name.endswith(".json"):
+        return None
+    try:
+        manifest = json.loads(blob.download_as_text())
+    except Exception as e:
+        return ("warn", blob.name, str(e))
+    result = compute_validity(bucket, manifest)
+    manifest.update(result)
+    if not dry_run:
+        blob.upload_from_string(json.dumps(manifest, indent=2), content_type="application/json")
+    return ("ok", result)
+
+def enrich_branch(bucket, branch, dry_run, max_workers=32):
     prefix = f"{OUTPUT_PREFIX}/{branch}_pairs/manifest/"
-    blobs = list(bucket.list_blobs(prefix=prefix))
+    blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith(".json")]
     print(f"Enriching {len(blobs)} manifests for branch '{branch}'...")
-
     n_valid, n_invalid, reasons = 0, 0, {}
-    for blob in blobs:
-        if not blob.name.endswith(".json"):
-            continue
-        try:
-            manifest = json.loads(blob.download_as_text())
-        except Exception as e:
-            print(f"  [WARN] Could not parse {blob.name}: {e}")
-            continue
-
-        result = compute_validity(bucket, manifest)
-        manifest.update(result)
-
-        if result["is_valid"]:
-            n_valid += 1
-        else:
-            n_invalid += 1
-            reasons[result["invalid_reason"]] = reasons.get(result["invalid_reason"], 0) + 1
-
-        if not dry_run:
-            blob.upload_from_string(json.dumps(manifest, indent=2),
-                                     content_type="application/json")
-
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [ex.submit(process_blob, bucket, b, dry_run) for b in blobs]
+        for fut in as_completed(futures):
+            r = fut.result()
+            if r is None:
+                continue
+            if r[0] == "warn":
+                print(f"  [WARN] Could not parse {r[1]}: {r[2]}")
+                continue
+            result = r[1]
+            if result["is_valid"]:
+                n_valid += 1
+            else:
+                n_invalid += 1
+                reasons[result["invalid_reason"]] = reasons.get(result["invalid_reason"], 0) + 1
     print(f"  Branch '{branch}': valid={n_valid}, invalid={n_invalid}")
-    if reasons:
-        print(f"  Invalid breakdown: {reasons}")
-    if dry_run:
-        print("  [DRY RUN] No manifests were modified.")
 
 def main():
     parser = argparse.ArgumentParser()
