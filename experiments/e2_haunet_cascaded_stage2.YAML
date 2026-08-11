@@ -97,7 +97,7 @@ loss:
 #   cov_channels: 11
 #   num_workers: 4
 #   use_stage1_pred: true
-#   stage1_pred_key: haunet_focal_dice_stage1_pred
+#   stage1_pred_key: haunet_focal_dice_dilated_stage1_pred # stage 1 predictions from model trained on dilated targets
 #   stage1_channels: 1        # stage1_pred raster is (1, 20, 20) -> presumably upsampled to 256x256
 #                             #     and concatenated as 1 extra input channel
 # model:
