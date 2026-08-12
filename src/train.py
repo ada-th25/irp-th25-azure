@@ -400,7 +400,9 @@ def main():
     dilate_target = cfg["data"].get("dilate_target", False)
     drop_dem = cfg["data"].get("drop_dem", False)
     drop_landcover = cfg["data"].get("drop_landcover", False)
-    binarize_target = cfg["data"].get("binarize_target", branch == "viirs")
+    binarize_target = cfg["data"].get("binarize_target")
+    if binarize_target is None:
+        binarize_target = (branch == "viirs")
     dilation_kernel_size = cfg["data"].get("dilation_kernel_size", None)
 
     if heatmap_target and loss_type not in GAUSSIAN_LOSS_TYPES:

@@ -19,6 +19,7 @@ data:
   dem_std: [0.9305519074216174]
   heatmap_target: false
   dilate_target: true
+  binarize_target: true
   dilation_kernel_size: 7     # Custom 7x7 kernel for Landsat
   goes_channels: 3
   cov_channels: 11
