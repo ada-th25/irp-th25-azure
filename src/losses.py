@@ -1,3 +1,22 @@
+"""
+Loss Functions.
+
+Provides modular loss implementations suited for handling extreme spatial 
+class imbalance and continuous target heatmaps.
+
+Classes:
+    - FocalLoss: Binary Focal Loss with optional class-balanced normalization.
+    - DiceLoss: Continuous soft-Dice loss over batch samples.
+    - TverskyLoss: Asymmetric Dice loss prioritising Recall or Precision.
+    - FocalDiceLoss: Linear combination of Focal and Dice losses.
+    - FocalTverskyLoss: Linear combination of Focal and Tversky losses.
+    - GaussianFocalLoss: Penalty-reduced focal loss for continuous heatmap targets.
+    - FocalDiceGaussianLoss: Combined region overlap and peak-alignment loss.
+
+Functions:
+    - build_loss: Factory routine to build loss functions from configuration dictionaries.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,11 +36,7 @@ class FocalLoss(nn.Module):
 
     Args:
         alpha  (float): Balancing factor for the positive class.
-                        Typical range 0.25-0.75; increase toward 1.0 for
-                        very sparse fire patches.
-        gamma  (float): Focusing exponent. gamma=0 recovers weighted BCE.
-                        gamma=2 is the standard recommendation; increase to
-                        3-4 if the model still ignores fire pixels.
+        gamma  (float): Focusing exponent.
         reduction (str): 'mean' | 'sum' | 'none'
         balanced: if True, normalises positive and negative pixel
                 losses separately by their own pixel counts before summing
@@ -88,8 +103,6 @@ class DiceLoss(nn.Module):
 
     Args:
         smooth    (float): Laplace smoothing added to numerator and denominator.
-                           Default 1.0 is standard; reduce to 1e-6 for stricter
-                           gradient signal on fire-present patches.
         reduction (str)  : 'mean' averages over batch; 'none' returns per-sample.
     """
 
@@ -148,8 +161,7 @@ class TverskyLoss(nn.Module):
         alpha  (float): Weight on false positives. Lower = fewer false-alarm
                         penalties.
         beta   (float): Weight on false negatives. Higher = missed fire
-                        pixels penalised more. For ~1:100+ imbalance, try
-                        beta in the 0.7-0.8 range with alpha = 1 - beta.
+                        pixels penalised more.
         smooth (float): Laplace smoothing constant.
         reduction (str): 'mean' | 'sum' | 'none'
     """
@@ -201,9 +213,6 @@ class FocalDiceLoss(nn.Module):
     Weighted sum of Focal Loss and Dice Loss.
 
         L = focal_weight * FocalLoss + dice_weight * DiceLoss
-
-    alpha=0.75 (rather than the standard 0.25) because fire is the rare
-    positive class we care about, so we up-weight it relative to background.
 
     Args:
         alpha        (float): Focal alpha; weight on the positive (fire) class.
@@ -258,11 +267,8 @@ class FocalTverskyLoss(nn.Module):
  
         L = focal_weight * FocalLoss + tversky_weight * TverskyLoss
  
-    Recommended for severe positive-class sparsity (measured ~1:117 fire
-    vs background on this dataset). Tversky's beta > alpha explicitly
-    penalises missed fire pixels harder than false alarms, giving a much
-    stronger gradient signal than plain Dice when targets.sum() is tiny
-    relative to H*W.
+    Tversky's beta > alpha explicitly penalises missed fire pixels harder
+    than false alarms.
  
     Args:
         alpha          (float): Focal alpha; weight on the positive (fire) class.
@@ -385,10 +391,9 @@ class FocalDiceGaussianLoss(nn.Module):
     """
     Weighted combination of FocalDiceLoss (mask-overlap driven) and
     GaussianFocalLoss (distance-to-peak driven), both applied to the same
-    continuous Gaussian heatmap target. Intended to fix the "sharp but
-    offset" failure mode of dice losses alone: FocalDice gives
-    strong convergence on approximate fire regions, GaussianFocal adds a
-    smooth gradient that specifically penalises being off-center.
+    continuous Gaussian heatmap target. FocalDice gives strong convergence
+    on approximate fire regions, GaussianFocal adds a smooth gradient that
+    specifically penalises being off-center.
 
     Args:
         fd_weight  (float): weight on the FocalDiceLoss term.

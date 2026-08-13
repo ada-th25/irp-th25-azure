@@ -1,3 +1,20 @@
+"""
+Evaluation Metrics.
+
+Provides pixel-level, spatial, boundary-aware, and threshold-free evaluation metrics
+to assess predicted fire masks against ground-truth targets.
+
+Functions:
+    - compute_iou: Thresholded Binary Intersection over Union (IoU).
+    - compute_soft_iou: Probabilistic / threshold-free soft IoU.
+    - compute_ipsnr: Intersection Peak Signal-to-Noise Ratio (dB).
+    - compute_boundary_f1: Perimeter/Boundary-focused F1 score.
+    - compute_precision_recall: Pixel-level Precision, Recall, and F1.
+    - compute_auprc: Area Under Precision-Recall Curve.
+    - compute_centroid_distance: Spatial distance between target and predicted peak intensity.
+    - compute_all_metrics: Batch aggregator wrapper over all supported metrics.
+"""
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -7,17 +24,16 @@ from sklearn.metrics import average_precision_score
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor,
                 threshold: float = 0.5) -> float:
     """
-    Binary IoU (Intersection over Union) over a batch.
+    Computes binary Intersection over Union (IoU) over a single batch.
 
     Args:
-        preds:     (B, 1, H, W) raw logits (pre-sigmoid)
-        targets:   (B, 1, H, W) binary ground truth {0, 1}
-        threshold: probability threshold for converting logits to a
-                   binary prediction mask
+        preds: Raw model predictions/logits of shape (B, 1, H, W) or (B, H, W).
+        targets: Ground truth binary targets {0, 1} matching preds shape.
+        threshold: Probability cutoff to binarize predictions after sigmoid.
 
     Returns:
-        Scalar IoU averaged over the batch. Returns 1.0 if both
-        prediction and target are empty (perfect agreement on "no fire").
+        float: Mean IoU score over the batch. Returns 1.0 if both prediction and target
+        are entirely empty (true negative alignment).
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
     target_mask = (targets >= 0.5).float()
@@ -30,24 +46,18 @@ def compute_iou(preds: torch.Tensor, targets: torch.Tensor,
 
 def compute_soft_iou(preds: torch.Tensor, targets: torch.Tensor, eps: float = 1e-8) -> float:
     """
-    Threshold-free ("soft") IoU using raw probabilities instead of a
-    binarized prediction mask.
+    Computes soft (threshold-free) Intersection over Union using predicted probabilities.
 
-    Unlike compute_iou, this never hard-zeros a sample just because the
-    model's peak probability falls short of a fixed cutoff. Useful for
-    a sparse-positive task, where median IoU at threshold=0.5
-    collapses to 0.0 for the majority of samples regardless of how well
-    the underlying probability map is spatially aligned with the target.
+    Unlike standard IoU, soft IoU evaluates continuously over probabilities. This prevents zero-value
+    collapses caused by strict fixed thresholds when evaluating sparse target regions.
 
     Args:
-        preds:   (B, 1, H, W) raw logits (pre-sigmoid)
-        targets: (B, 1, H, W) ground truth in [0, 1] (binary or continuous
-                  heatmap both work -- no thresholding applied to either)
+        preds: Raw model logits of shape (B, 1, H, W) or (B, H, W).
+        targets: Target ground truth values in range [0, 1] matching preds shape.
+        eps: Small numerical stability constant to prevent division by zero.
 
     Returns:
-        Scalar soft IoU averaged over the batch. Returns 1.0 for a sample
-        if both prediction and target are all-zero (same convention as
-        compute_iou's empty-union case).
+        float: Soft IoU score averaged across samples in the batch.
     """
     probs = torch.sigmoid(preds)
     target = targets
@@ -66,17 +76,20 @@ def compute_soft_iou(preds: torch.Tensor, targets: torch.Tensor, eps: float = 1e
 def compute_ipsnr(preds: torch.Tensor, targets: torch.Tensor,
                   threshold: float = 0.5, eps: float = 1e-8) -> float:
     """
-    Intersection PSNR: PSNR computed only over the union of predicted
-    and true fire pixels (Badhan et al. 2020). Standard whole-image PSNR is dominated by the
-    ~99.9% background pixels and is uninformative for this task; IPSNR
-    isolates the signal that actually matters (placement accuracy of
-    fire probability around the true and predicted fire regions).
+    Calculates Intersection Peak Signal-to-Noise Ratio (IPSNR) over non-background regions.
+
+    Restricts PSNR error calculation to pixels in the spatial union of true and predicted fire regions,
+    isolating error magnitude from background dominance.
+
+    Args:
+        preds: Raw model predictions/logits of shape (B, 1, H, W).
+        targets: Ground truth target maps of shape (B, 1, H, W).
+        threshold: Decision cutoff threshold for building the prediction mask union.
+        eps: Lower numerical limit bound for Mean Squared Error (MSE).
 
     Returns:
-        PSNR in dB, capped at 100.0 for near-perfect matches.
-        Returns float('inf') if the union mask is empty (no fire pixels
-        in prediction OR target), caller should exclude these from
-        any running average rather than treating them as a real score.
+        float: Signal-to-noise ratio in decibels (dB), capped at 100.0 dB for ideal predictions.
+        Returns float("inf") if the union region contains zero total fire pixels.
     """
     pred_prob = torch.sigmoid(preds)
     mask = ((pred_prob >= threshold) | (targets >= 0.5)).float()
@@ -92,15 +105,17 @@ def compute_ipsnr(preds: torch.Tensor, targets: torch.Tensor,
 def compute_boundary_f1(preds: torch.Tensor, targets: torch.Tensor,
                          threshold: float = 0.5) -> float:
     """
-    F1 score restricted to fire-perimeter pixels.
+    Calculates the F1 score restricted strictly to the perimeter edges of fire boundaries.
 
-    Boundary pixels are found by morphological erosion (via negated
-    max-pool), a pixel is on the boundary if it is fire but at least
-    one of its 8 neighbours is not (or vice versa for the prediction).
+    Boundaries are extracted using morphological erosion via min-pooling over a 3x3 kernel.
+
+    Args:
+        preds: Pre-activation logits tensor of shape (B, 1, H, W).
+        targets: Ground-truth target tensor of shape (B, 1, H, W).
+        threshold: Probability cutoff for output binarization.
 
     Returns:
-        F1 in [0, 1]. Returns 0.0 if there are no boundary pixels in
-        either prediction or target (degenerate case).
+        float: Calculated spatial Boundary F1 score bounded in range [0, 1].
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
     target_mask = (targets >= 0.5).float()
@@ -128,15 +143,15 @@ def compute_boundary_f1(preds: torch.Tensor, targets: torch.Tensor,
 def compute_precision_recall(preds: torch.Tensor, targets: torch.Tensor,
                              threshold: float = 0.5) -> dict:
     """
-    Pixel-level precision and recall (not boundary-restricted).
+    Calculates pixel-level classification Precision, Recall, and F1-score metrics.
 
-    Useful as a supplementary metric to IoU: tells whether the
-    model is biased toward over-predicting (low precision, high recall)
-    or under-predicting (high precision, low recall) fire, which a
-    single IoU number can mask.
+    Args:
+        preds: Raw model prediction logits tensor.
+        targets: Ground truth target mask.
+        threshold: Decision threshold applied after sigmoid.
 
     Returns:
-        dict with keys 'precision', 'recall', 'f1'
+        Dict[str, float]: Output metric scores containing keys 'precision', 'recall', and 'f1'.
     """
     pred_mask = (torch.sigmoid(preds) >= threshold).float()
     target_mask = (targets >= 0.5).float()
@@ -154,15 +169,17 @@ def compute_precision_recall(preds: torch.Tensor, targets: torch.Tensor,
 
 def compute_auprc(preds: torch.Tensor, targets: torch.Tensor) -> float:
     """
-    Average precision computed directly on continuous probabilities vs.
-    continuous/binary targets, no thresholding. This is the fair way to
-    compare losses whose output calibration (max prob, sharpness) differs,
-    since compute_iou/precision/recall depend heavily on a fixed threshold
-    that different losses clear very differently.
+    Calculates Area Under Precision-Recall Curve (AUPRC / Average Precision).
+
+    Evaluates predictions directly using raw sigmoid probabilities, avoiding threshold bias.
+
+    Args:
+        preds: Raw model output prediction logits.
+        targets: Target raster maps. Evaluates positive regions where values > 0.
 
     Returns:
-        Scalar AUPRC averaged over the batch. Skips samples with an
-        all-zero target (undefined precision-recall curve).
+        float: Mean AUPRC score across batch samples containing positive target pixels.
+        Returns float("nan") if no positive pixels exist in target batch samples.
     """
     probs = torch.sigmoid(preds).detach().cpu().numpy()
     tgts = targets.detach().cpu().numpy()
@@ -183,17 +200,18 @@ def compute_auprc(preds: torch.Tensor, targets: torch.Tensor) -> float:
 def compute_centroid_distance(preds: torch.Tensor, targets: torch.Tensor,
                                pixel_size_m: float = None) -> float:
     """
-    Euclidean distance (in pixels, or metres if pixel_size_m given) between
-    the argmax location of the predicted heatmap and the argmax location
-    of the target heatmap, per sample.
+    Calculates spatial Euclidean distance between target and predicted peak intensity coordinates.
 
-    This measures "how far off is the fire location",
-    which IoU at a fixed threshold does not cleanly capture.
+    Finds spatial discrepancy by locating the argmax coordinate in predicted and target rasters.
+
+    Args:
+        preds: Predicted model logits of shape (B, 1, H, W).
+        targets: Target spatial maps of shape (B, 1, H, W).
+        pixel_size_m: Spatial resolution per pixel in meters. If None, returns distance in pixel units.
 
     Returns:
-        Mean distance over samples where the target has a positive peak.
-        Samples with an all-zero target are skipped (no true location to
-        compare against).
+        float: Mean distance error for samples containing valid non-zero target pixels.
+        Returns float("nan") if all targets in the batch are non-positive.
     """
     probs = torch.sigmoid(preds)  # (B, 1, H, W)
     B = probs.shape[0]
@@ -218,14 +236,16 @@ def compute_centroid_distance(preds: torch.Tensor, targets: torch.Tensor,
 def compute_all_metrics(preds: torch.Tensor, targets: torch.Tensor,
                         threshold: float = 0.5, pixel_size_m: float = None) -> dict:
     """
-    Convenience wrapper computing every metric at once for a single batch.
+    Convenience wrapper function computing all metrics simultaneously for a input batch.
 
     Args:
-        pixel_size_m: native pixel resolution of the target being evaluated
-                      (e.g. 384.0 for VIIRS Stage-1, 30.0 for Landsat Stage-2).
-                      Passed through to compute_centroid_distance so reported
-                      distances are in metres; leave as None to get distance
-                      in pixels instead (not comparable across branches).
+        preds: Model execution output logits tensor.
+        targets: Ground truth spatial targets tensor.
+        threshold: Decision threshold applied for binary metrics.
+        pixel_size_m: Ground spatial resolution footprint per pixel side in meters.
+
+    Returns:
+        Dict[str, float]: Mapping of metric names to calculated quantitative scores.
     """
     pr = compute_precision_recall(preds, targets, threshold)
     return {

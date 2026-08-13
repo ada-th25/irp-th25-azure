@@ -1,5 +1,13 @@
 """
-Usage example: python src/train.py --config experiments/e2_haunet_cascaded_stage1.YAML
+Model Training Script.
+
+This module executes training and validation loops for wildfire super-resolution models.
+It handles configuration loading, cloud dataset streaming, GCS checkpoint management,
+multi-metric validation, post-processing evaluation.
+
+Usage Example:
+    python src/train.py --config experiments/e2_haunet_cascaded_stage1.YAML
+    python src/train.py --config experiments/e1_haunet_cascaded_stage1.YAML --resume checkpoints/epoch_010.pt
 """
 
 import argparse
@@ -33,13 +41,11 @@ MODEL_REGISTRY = {
     "autoencoder": "models.autoencoder",
 }
 
-# Loss types that expect a continuous [0,1] Gaussian heatmap target rather
-# than a binary {0,1} mask. Used to auto-derive heatmap_target from loss.type
-# and to sanity-check explicit overrides.
+# Loss types that expect a continuous [0,1] target rather
+# than a binary {0,1} mask
 GAUSSIAN_LOSS_TYPES = {"gaussian_focal", "gaussianfocalloss", "focal_dice_gaussian", "focal_dice_gaussian_spatial"}
 
-# Metrics where higher is better vs lower is better, used to generalise the
-# "is_best" checkpoint comparison beyond a hardcoded val_iou.
+# Metrics where higher is better vs lower is better
 HIGHER_IS_BETTER = {
     "val_iou": True, "val_soft_iou": True, "val_iou_t03": True, "val_ipsnr": True,
     "val_boundary_f1": True, "val_precision": True, "val_recall": True,
@@ -52,9 +58,19 @@ HIGHER_IS_BETTER = {
 # ------------------------------------------------------------------
 def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output_prefix: str) -> dict:
     """
-    Read n_active_pixels (or n_detections) directly from manifest JSONs,
-    keyed by sample id. Avoids loading full raster data just to get a
-    pixel count.
+    Parses active pixel counts directly from GCS manifest files asynchronously.
+
+    Avoids downloading full raster data during dataset initialization to build
+    sampling weights for `WeightedRandomSampler`.
+
+    Args:
+        bucket: Google Cloud Storage bucket object.
+        branch: Data processing branch identifier (e.g., 'viirs', 'goes').
+        split_ids: List of sample IDs belonging to the dataset split.
+        output_prefix: Root path prefix in the GCS bucket.
+
+    Returns:
+        Dict[str, int]: Keyed mapping of sample IDs to their positive pixel counts.
     """
     prefix = f"{output_prefix}/{branch}_pairs/manifest/"
     split_id_set = set(split_ids)
@@ -79,6 +95,14 @@ def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output
 # ------------------------------------------------------------------
 
 def upload_checkpoint(bucket, local_path: str, gcs_prefix: str) -> None:
+    """
+    Uploads a local model checkpoint file to Google Cloud Storage.
+
+    Args:
+        bucket: Target GCS bucket instance.
+        local_path: Local filesystem path to the checkpoint file (.pt).
+        gcs_prefix: Target directory prefix inside the GCS bucket.
+    """
     fname = os.path.basename(local_path)
     gcs_path = f"{gcs_prefix}/{fname}"
     bucket.blob(gcs_path).upload_from_filename(local_path)
@@ -86,7 +110,14 @@ def upload_checkpoint(bucket, local_path: str, gcs_prefix: str) -> None:
 
 
 def prune_old_checkpoints(bucket, gcs_prefix: str, keep_last_n: int) -> None:
-    """Delete older epoch checkpoints from GCS, keeping only the most recent N."""
+    """
+    Deletes older epoch checkpoints in GCS, retaining only the N most recent.
+
+    Args:
+        bucket: Target GCS bucket instance.
+        gcs_prefix: Target directory prefix inside the GCS bucket.
+        keep_last_n: Number of latest epoch checkpoints to preserve.
+    """
     blobs = sorted(
         [b for b in bucket.list_blobs(prefix=gcs_prefix)
          if "epoch_" in b.name and b.name.endswith(".pt")],
@@ -103,6 +134,15 @@ def prune_old_checkpoints(bucket, gcs_prefix: str, keep_last_n: int) -> None:
 # ------------------------------------------------------------------
 
 class CSVLogger:
+    """
+    Appends epoch-level metrics to a structured CSV file.
+
+    Handles file creation, backups on non-resumed runs, and formatting.
+
+    Attributes:
+        path (str): Target filesystem path for the CSV output.
+        columns (List[str]): Header fields for logging metrics.
+    """
     DEFAULT_COLUMNS = [
         "epoch", "train_loss", "lr",
         "val_loss", "val_iou","val_iou_t03", "val_soft_iou", "val_ipsnr",
@@ -113,6 +153,14 @@ class CSVLogger:
     ]
  
     def __init__(self, path: str, columns: list = None, resume: bool = False):
+        """
+        Initialises CSVLogger. Backs up existing file if run is not a resume.
+
+        Args:
+            path: Destination file path for CSV logs.
+            columns: List of metric keys. Defaults to `DEFAULT_COLUMNS`.
+            resume: Flag denoting whether execution is resuming from a prior state.
+        """
         self.path = path
         self.columns = columns or list(self.DEFAULT_COLUMNS)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -124,6 +172,12 @@ class CSVLogger:
             os.replace(self.path, backup_path)
  
     def log(self, row: dict) -> None:
+        """
+        Appends a dictionary row of metrics to the target CSV.
+
+        Args:
+            row: Key-value dictionary containing metrics corresponding to `columns`.
+        """
         write_header = not os.path.exists(self.path)
         with open(self.path, "a", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=self.columns, restval="", extrasaction="ignore")
@@ -147,6 +201,25 @@ def train_one_epoch(
     epoch: int,
     accum_steps: int = 1,
 ) -> float:
+    """
+    Executes a single training epoch across all dataset batches.
+
+    Handles gradient accumulation, dynamic spatial resampling for models outputting
+    variable shapes, loss component breakdown logging, gradient clipping, and status updates.
+
+    Args:
+        model: PyTorch neural network model.
+        loader: DataLoader supplying training batches.
+        optimiser: PyTorch optimiser instance.
+        criterion: Loss function module.
+        device: Compute execution device (CPU/CUDA).
+        grad_clip: Maximum gradient norm value (disabled if <= 0).
+        epoch: Current epoch index for logging.
+        accum_steps: Number of batches over which to accumulate gradients.
+
+    Returns:
+        float: Mean training loss across all batches in the epoch.
+    """
     model.train()
     total_loss = 0.0
     n_batches  = len(loader)
@@ -161,7 +234,8 @@ def train_one_epoch(
         target = batch["target"].to(device)    # (B, 1, 256, 256)
  
         logits = model(inp)                    # (B, 1, H_in, W_in)
-        
+
+        # Align output spatial resolution to target if shapes mismatch
         if logits.shape[-2:] != target.shape[-2:]:
             logits = F.adaptive_max_pool2d(logits, target.shape[-2:])
             
@@ -176,6 +250,7 @@ def train_one_epoch(
         if torch.isnan(logits).any() or torch.isinf(logits).any():
             print(f"    [WARNING] logits contain NaN/Inf at batch {batch_idx}")
 
+        # Sanity check stats on first batch
         if batch_idx == 0:
             print(f"    [Epoch {epoch}] logit range: {logits.min().item():.4f} - {logits.max().item():.4f}, "
                   f"logit std: {logits.std().item():.6f}")
@@ -232,17 +307,20 @@ def validate(
     pixel_size_m: float = 384.0,
 ) -> dict:
     """
+    Evaluates model performance on the validation set across target metrics.
+
     Args:
-        threshold:           probability threshold used for val_iou, val_boundary_f1,
-                              val_precision/recall/pixel_f1.
-        low_threshold:        secondary, looser threshold used for val_iou_t03 —
-                              useful for Gaussian-heatmap targets where the core
-                              peak region undercounts a 0.5 threshold.
-        compute_ipsnr_flag:   if False, skips ipsnr entirely (returns 0.0). ipsnr is
-                              the one metric that scores raw probabilities rather
-                              than a thresholded mask, so it's most meaningful for
-                              Stage-1 (heatmap) runs and can be skipped elsewhere
-                              to save time.
+        model: PyTorch model evaluated in evaluation mode (`eval()`).
+        loader: Validation dataset loader.
+        criterion: Loss function module.
+        device: Execution device (CPU/CUDA).
+        threshold: Primary probability cutoff for standard mask metrics.
+        low_threshold: Secondary looser threshold.
+        compute_ipsnr_flag: Controls whether IPSNR calculation is performed.
+        pixel_size_m: Physical pixel width/height in meters for spatial distance metrics.
+
+    Returns:
+        Dict[str, float]: Evaluated aggregate validation metrics.
     """
     model.eval()
     total_loss = 0.0
@@ -313,10 +391,20 @@ def compute_postprocessed_metrics(
     model, loader, device, pixel_size_m, postprocess_cfg,
 ) -> dict:
     """
-    Same metrics as validate(), computed on the post-processed binary
-    mask instead of raw sigmoid output. Kept as a separate pass -- never
-    used for checkpoint selection (see main(): best_metric is always
-    computed from raw validate() output).
+    Computes validation metrics on post-processed predictions.
+
+    Converts probabilities through post-processing (e.g. percentile
+    thresholding, Otsu) before computing metrics.
+
+    Args:
+        model: PyTorch evaluation model.
+        loader: Validation dataset loader.
+        device: Compute execution device.
+        pixel_size_m: Physical pixel scale in meters.
+        postprocess_cfg: Config mapping with post-processing options.
+
+    Returns:
+        Dict[str, float]: Metrics derived post-filtering (prefixed with `pp_`).
     """
     model.eval()
     total_iou, total_bf1, total_precision, total_recall, total_pixel_f1 = 0, 0, 0, 0, 0

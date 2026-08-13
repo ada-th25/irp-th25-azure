@@ -1,14 +1,18 @@
 """
-Evaluate a trained checkpoint on a held-out split (default: test).
+Model Evaluation Script.
 
-Produces:
-  - <log_dir>/<exp_name>_test_per_sample.csv   one row per test sample
-  - <log_dir>/<exp_name>_test_summary.json     mean/std/median per metric
+Evaluates a trained model checkpoint against a designated dataset split (e.g. test, val, train).
+Generates per-sample CSV logs, aggregates descriptive statistical summaries (JSON),
+compares output against naive zero-prediction and prevalence baselines.
 
-Usage:
+Outputs:
+  - <log_dir>/<exp_name>_<ckpt_tag>_<split>_per_sample.csv
+  - <log_dir>/<exp_name>_<ckpt_tag>_<split>_summary.json
+
+Usage Example:
     python src/evaluate.py \
         --config experiments/e2_haunet_cascaded_stage1_test.YAML \
-        --checkpoint checkpoints/e2_haunet_cascaded_stage1_test/best.pt \
+        --checkpoint checkpoints/e2_haunet_cascaded_stage1_test/best_val_iou.pt \
         --split test
 """
 
@@ -53,6 +57,16 @@ CSV_COLUMNS = [
 
 
 def build_model(cfg, device):
+    """
+    Instantiates the model architecture based on provided configuration parameters.
+
+    Args:
+        cfg: Experiment configuration mapping containing model specifications.
+        device: Target hardware runtime execution device (CPU/CUDA).
+
+    Returns:
+        nn.Module: Instantiated PyTorch neural network transferred to the specified device.
+    """
     model_name = cfg["model"]["name"]
     make_model = importlib.import_module(MODEL_REGISTRY[model_name]).make_model
     model = make_model(
@@ -66,9 +80,21 @@ def build_model(cfg, device):
 
 def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
     """
-    If checkpoint_path exists locally, use it as-is. Otherwise, attempt to
-    download the matching file from GCS (assuming the same filename lives
-    under gcs_ckpt_prefix) before failing.
+    Ensures local availability of the target model checkpoint file.
+
+    Checks local filesystem path first. If missing, attempts downloading the corresponding
+    file from Google Cloud Storage.
+
+    Args:
+        checkpoint_path: Local or relative target path for the checkpoint file.
+        bucket_name: Google Cloud Storage bucket name.
+        gcs_ckpt_prefix: Remote storage folder path prefix.
+
+    Returns:
+        str: Resolved local file system path pointing to the checkpoint file.
+
+    Raises:
+        FileNotFoundError: If the checkpoint cannot be located locally or remotely.
     """
     local_path = Path(checkpoint_path)
     if local_path.exists():
@@ -98,7 +124,23 @@ def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_pre
 def evaluate_sample(model, batch, device, threshold, low_threshold,
                      compute_ipsnr_flag, pixel_size_m,
                      do_postprocess, postprocess_cfg):
-    """Run inference + compute all metrics for a single sample (batch_size=1)."""
+    """
+    Executes model inference and calculates full quantitative metrics on a single sample.
+
+    Args:
+        model: Evaluated PyTorch network.
+        batch: Dictionary container with batch size 1 containing input and target tensors.
+        device: Runtime execution device.
+        threshold: Primary threshold cutoff for output binarization.
+        low_threshold: Lower threshold relaxed bound for soft heatmap evaluation.
+        compute_ipsnr_flag: Toggle for standard IPSNR performance computation.
+        pixel_size_m: Spatial spatial pixel dimension in meters for spatial distance errors.
+        do_postprocess: Toggle for executing post-processing metrics evaluation pass.
+        postprocess_cfg: Configuration dictionary setting post-processing behavior.
+
+    Returns:
+        Dict[str, Union[float, str]]: Dict containing per-sample metric evaluations.
+    """
     inp = batch["input"].to(device)
     target = batch["target"].to(device)
 
@@ -159,9 +201,20 @@ def evaluate_sample(model, batch, device, threshold, low_threshold,
 @torch.no_grad()
 def evaluate_baseline_sample(batch, device, threshold, low_threshold,
                               compute_ipsnr_flag, pixel_size_m):
-    """Same metrics as evaluate_sample, but for a trivial always-background
-    prediction i.e. logits fixed at a large negative value everywhere,
-    so sigmoid(logits) ≈ 0 for every pixel."""
+    """
+    Evaluates metric benchmarks for an always-background trivial predictor (all zeros).
+
+    Args:
+        batch: Data batch containing target rasters.
+        device: Compute execution device.
+        threshold: Binarization probability threshold.
+        low_threshold: Relaxed evaluation threshold bound.
+        compute_ipsnr_flag: Toggle for IPSNR metric computation.
+        pixel_size_m: Physical pixel grid length scale in meters.
+
+    Returns:
+        Dict[str, float]: Computed baseline metric scores.
+    """
     target = batch["target"].to(device)
     # Large negative constant logit -> sigmoid ≈ 0 across the whole image
     logits = torch.full_like(target, -20.0)
@@ -184,10 +237,22 @@ def evaluate_baseline_sample(batch, device, threshold, low_threshold,
 @torch.no_grad()
 def evaluate_prevalence_baseline_sample(batch, device, threshold, low_threshold,
                                          pixel_size_m, prior_logit):
-    """Constant-probability baseline: every pixel gets the same predicted
-    probability, equal to the training-set positive-pixel prevalence. Unlike
-    the all-zero baseline, it can produce nonzero precision/recall at
-    low thresholds."""
+    """
+    Evaluates metric benchmarks using a constant-prevalence baseline predictor.
+
+    Assigns every pixel a uniform probability equal to the dataset prior fire probability.
+
+    Args:
+        batch: Data batch containing target rasters.
+        device: Execution hardware device.
+        threshold: Standard decision threshold cutoff.
+        low_threshold: Secondary relaxed evaluation threshold.
+        pixel_size_m: Meter scale factor per pixel footprint side.
+        prior_logit: Log-odds value corresponding to empirical prior target fire prevalence.
+
+    Returns:
+        Dict[str, float]: Calculated baseline metrics.
+    """
     target = batch["target"].to(device)
     logits = torch.full_like(target, prior_logit)
 
@@ -208,7 +273,17 @@ def evaluate_prevalence_baseline_sample(batch, device, threshold, low_threshold,
 
 
 def summarize(rows: list) -> dict:
-    """Mean / std / median / min / max per numeric column, ignoring NaNs."""
+    """
+    Computes summary distribution statistics across per-sample evaluation logs.
+
+    Filters out NaNs and returns calculated central tendencies and ranges.
+
+    Args:
+        rows: Sequence of per-sample evaluation metric row dictionaries.
+
+    Returns:
+        Dict[str, Dict[str, float]]: Aggregated statistic mapping (mean, std, median, min, max, count).
+    """
     summary = {}
     if not rows:
         return summary
