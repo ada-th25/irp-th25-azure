@@ -1,3 +1,12 @@
+"""
+Wildfire Dataset and Storage Utilities.
+
+Provides Google Cloud Storage (GCS) dataset loading interfaces for multi-modal 
+wildfire datasets containing GOES satellite, DEM, land cover, and high-resolution 
+ground-truth fire rasters. Handles fork-safe lazy connection pooling, dynamic 
+raster spatial resampling, target dilation/heatmap transforms, and split split ID resolution.
+"""
+
 import os
 import json
 import numpy as np
@@ -14,23 +23,20 @@ def load_split_ids(bucket_name: str, branch: str,
                    split: str, output_prefix: str = "processed_dataset",
                    splits_dir: str = "splits") -> set[str]:
     """
-    Read a split text file from GCS and return the set of sample IDs.
- 
+    Downloads split ID tracking manifest from Google Cloud Storage.
+
     Args:
-        bucket_name: GCS bucket (e.g. 'wildfire-irp-data-th25')
-        branch: 'landsat' or 'viirs'
-        split: 'train', 'val', or 'test'
-        output_prefix: top-level GCS prefix (default 'processed_dataset')
-        splits_dir: which splits folder to read from, e.g. 'splits'
-                    (full dataset) or 'splits_dev500' (subsampled).
-                    Must match the --suffix used in split_data.py.
- 
+        bucket_name: GCS storage bucket identifier.
+        branch: Target dataset branch ('landsat' or 'viirs').
+        split: Target dataset partition ('train', 'val', or 'test').
+        output_prefix: Root directory path in the target bucket.
+        splits_dir: Specific directory containing split text files.
+
     Returns:
-        Set of sample ID strings.
- 
+        Set[str]: Unique sample identifier strings contained within the split file.
+
     Raises:
-        FileNotFoundError if the split file does not exist, run
-        split_data.py first.
+        FileNotFoundError: If target split file does not exist in GCS storage.
     """
     path = f"{output_prefix}/{splits_dir}/{branch}/{split}.txt"
     bucket = storage.Client().bucket(bucket_name)
@@ -71,7 +77,7 @@ class WildfireDataset(Dataset):
         VIIRS branch (stage 1 -- full-res input, native-res output):
             goes       -> (3, 4, 4)     native GOES context
             goes_up    -> (3, 256, 256) upsampled for concatenation
-            covariates -> (11, 256, 256) native (30m), UNCHANGED -- model
+            covariates -> (11, 256, 256) native (30m), model
                                         input keeps full spatial detail
             target     -> (1, 20, 20)   native VIIRS grid, no resize needed
                                         (binarized from raw FRP)
@@ -80,7 +86,6 @@ class WildfireDataset(Dataset):
         Samples are silently dropped at init time if any of the three
         files are missing from GCS, or if the GOES raster is all-masked
         (all zeros across all bands, indicates a failed/empty GEE export).
-        The number of dropped samples is reported via self.n_dropped.
     """
 
     def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
@@ -163,12 +168,14 @@ class WildfireDataset(Dataset):
     # Manifest loading
     # ------------------------------------------------------------------
     def _download_manifest_json(self, blob):
+        """Downloads and parses GCS JSON manifest blob safely."""
         try:
             return json.loads(blob.download_as_text())
         except Exception:
             return None
 
     def _load_manifests(self, manifest_prefix, split_ids, manifest_workers):
+        """Fetches JSON manifest files in parallel using ThreadPoolExecutor worker pools."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         candidate_blobs = []
@@ -213,18 +220,12 @@ class WildfireDataset(Dataset):
     @property
     def bucket(self):
         """
-        Lazily create a storage.Client()/bucket in the CURRENT process.
- 
-        google-cloud-storage's client holds open HTTP connections
-        (urllib3 pools) that are not fork-safe: if a client created in
-        the main process is inherited by DataLoader worker processes via
-        fork(), concurrent workers can corrupt/interleave reads on the
-        duplicated sockets, surfacing as intermittent
-        google.cloud.storage.exceptions.DataCorruption errors.
- 
-        Checking os.getpid() ensures each worker process builds its own
-        fresh client on first access, rather than reusing one inherited
-        from the parent at fork time.
+        Lazily initializes Google Cloud Storage bucket handle bound to current PID.
+
+        Prevents socket-sharing bugs during DataLoader worker process initialisation.
+
+        Returns:
+            storage.Bucket: Active storage bucket connection handle.
         """
         current_pid = os.getpid()
         if self._bucket is None or self._client_pid != current_pid:
@@ -262,6 +263,7 @@ class WildfireDataset(Dataset):
         return True
 
     def _filter_complete(self, raw_samples):
+        """Filters manifest entries based on `is_valid` flag and stage 1 key existence."""
         valid = [m for m in raw_samples if m.get("is_valid") is True]
         if self.use_stage1_pred:
             before = len(valid)
@@ -278,6 +280,18 @@ class WildfireDataset(Dataset):
     # ------------------------------------------------------------------
 
     def _read_gcs_raster(self, gcs_path, fill_nodata=0.0):
+        """
+        Reads binary raster data from GCS key into a PyTorch FloatTensor.
+
+        Replaces NoData values and non-finite NaN/Inf values with fill value.
+
+        Args:
+            gcs_path: GCS bucket blob key path.
+            fill_nodata: Target numerical replacement value for non-finite entries.
+
+        Returns:
+            torch.Tensor: Hydro/spatial raster tensor representation.
+        """
         blob = self.bucket.blob(gcs_path)
         raw  = blob.download_as_bytes()
         with rasterio.MemoryFile(raw) as memfile:
@@ -309,9 +323,14 @@ class WildfireDataset(Dataset):
 
     def make_gaussian_heatmap_target(self, binary_target: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
         """
-        Converts binary keypoints into continuous Gaussian target heatmaps.
-        For every pixel with value 1.0, a Gaussian distribution is rendered around it.
-        Underlapping Gaussians retain the maximum value at each pixel.
+        Converts binary active fire coordinates into a 2D continuous Gaussian heatmap.
+
+        Args:
+            binary_target: Single-channel spatial target tensor (1, H, W).
+            sigma: Gaussian distribution standard deviation / kernel radius spread.
+
+        Returns:
+            torch.Tensor: Continuous target probability heatmap with shape (1, H, W).
         """
         _, h, w = binary_target.shape
         # Create coordinate grid
@@ -341,6 +360,7 @@ class WildfireDataset(Dataset):
     LANDCOVER_CLASSES = [10, 20, 30, 40, 50, 60, 80, 90, 95, 100]
 
     def _onehot_landcover(self, lc_code):
+        """Encodes raw land cover class code raster into multi-channel one-hot tensor."""
         # lc_code: (1, H, W) raw class codes
         stacks = [(lc_code[0] == c).float() for c in self.LANDCOVER_CLASSES]
         return torch.stack(stacks, dim=0)  # (N, H, W)
@@ -350,9 +370,21 @@ class WildfireDataset(Dataset):
     # ------------------------------------------------------------------
 
     def __len__(self):
+        """Returns total valid samples loaded into dataset."""
         return len(self.samples)
 
     def __getitem__(self, idx):
+        """
+        Fetches, preprocesses, resamples, and constructs model training batch dict.
+
+        Args:
+            idx: Integer dataset sample index.
+
+        Returns:
+            Dict[str, Union[torch.Tensor, str]]: Batch dictionary containing model inputs 
+            ("input"), target masks ("target"), GOES base tensor ("goes"), 
+            covariates ("covariates"), sample string ID ("sample_id"), and date string ("date").
+        """
         manifest = self.samples[idx]
         paths = manifest["paths"]
     

@@ -1,7 +1,21 @@
 """
-NOTE: Must run src/utils/enrich_manifests.py before running the splits.
+Dataset Stratification and Split Generation Pipeline.
 
-Usage example: python src/data/split_data.py --branch viirs --max-samples 500 --suffix 500_samples_test --overwrite
+Generates reproducible train/validation/test splits stratified by fire size 
+(pixel counts or hotspot detections) for Landsat and VIIRS branches. Reads 
+sample manifest metadata directly from Google Cloud Storage (GCS) and writes 
+split ID lists as plain-text files.
+
+Pre-requisite:
+    Must run `src/utils/enrich_manifests.py` before generating splits to ensure 
+    `is_valid` metadata flags are populated across all GCS manifest JSON files.
+
+Usage example:
+    python src/data/split_data.py \
+        --branch viirs \
+        --max-samples 500 \
+        --suffix 500_samples_test \
+        --overwrite
 """
 
 import argparse
@@ -26,7 +40,16 @@ RANDOM_SEED = 42  # fixed seed for reproducibility across all experiments
 
 
 def load_manifests(bucket, branch: str) -> list[dict]:
-    """Download and parse all manifest JSONs for a given branch."""
+    """
+    Downloads and parses all manifest JSON records for a specified dataset branch.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket object.
+        branch: Target dataset branch ('landsat' or 'viirs').
+
+    Returns:
+        List[Dict[str, Any]]: List of parsed sample manifest dictionaries.
+    """
     prefix = f"{OUTPUT_PREFIX}/{branch}_pairs/manifest/"
     blobs = list(bucket.list_blobs(prefix=prefix))
     print(f"  Loading {len(blobs)} manifests for branch '{branch}'...")
@@ -49,14 +72,22 @@ def stratified_split(
     seed: int,
 ) -> tuple[list, list, list]:
     """
-    Stratified train/val/test split by fire size using
-    sklearn.StratifiedShuffleSplit.
+    Executes a two-stage stratified train/val/test split based on fire pixel counts.
 
-    Steps:
-    1. Bin continuous pixel counts into n_strata quantile bins
-    2. First split: train+val vs test, stratified by bin
-    3. Second split: train vs val from the train+val portion,
-       stratified by bin
+    Divides continuous fire sizes into quantile bins and uses `StratifiedShuffleSplit`
+    to guarantee identical size distributions across all generated partitions.
+
+    Args:
+        sample_ids: Identifiers for the dataset samples.
+        pixel_counts: Target fire pixel or detection counts per sample.
+        train_ratio: Proportion of dataset allocated to training set.
+        val_ratio: Proportion of dataset allocated to validation set.
+        n_strata: Number of percentile bins to aggregate fire sizes.
+        seed: Random state seed for reproducible splitting.
+
+    Returns:
+        Tuple[List[str], List[str], List[str]]: Lists containing sample IDs for 
+        (train_ids, val_ids, test_ids).
     """
     sample_ids = np.array(sample_ids)
     counts = np.array(pixel_counts)
@@ -102,6 +133,16 @@ def stratified_split(
 
 def write_split(bucket, branch: str, split_name: str, ids: list[str],
                  suffix: str = "") -> None:
+    """
+    Serialises a split ID list to a plain-text file in Google Cloud Storage.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket object.
+        branch: Dataset branch name ('landsat' or 'viirs').
+        split_name: Partition name ('train', 'val', or 'test').
+        ids: Collection of sample ID strings to write.
+        suffix: Optional directory suffix for experimental splits.
+    """
     splits_dir = f"splits_{suffix}" if suffix else "splits"
     path = f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/{split_name}.txt"
     content = "\n".join(sorted(ids))
@@ -110,6 +151,17 @@ def write_split(bucket, branch: str, split_name: str, ids: list[str],
 
 
 def split_exists(bucket, branch: str, suffix: str = "") -> bool:
+    """
+    Checks if a training split file already exists in GCS for a given branch.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket object.
+        branch: Dataset branch name ('landsat' or 'viirs').
+        suffix: Optional directory suffix.
+
+    Returns:
+        bool: True if split exists, False otherwise.
+    """
     splits_dir = f"splits_{suffix}" if suffix else "splits"
     return bucket.blob(
         f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/train.txt"
@@ -118,6 +170,16 @@ def split_exists(bucket, branch: str, suffix: str = "") -> bool:
 
 def run_branch(bucket, branch: str, overwrite: bool,
                 max_samples: int = None, suffix: str = "") -> None:
+    """
+    Filters valid records, calculates splits, and exports split metadata for a branch.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket object.
+        branch: Target dataset branch ('landsat' or 'viirs').
+        overwrite: Forces regeneration if destination split files exist.
+        max_samples: Subsamples the target dataset before split execution.
+        suffix: Directory suffix name for saving experiment splits.
+    """
     print(f"\n{'='*60}")
     print(f"Branch: {branch}" + (f" (suffix={suffix})" if suffix else ""))
     print(f"{'='*60}")

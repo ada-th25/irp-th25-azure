@@ -1,15 +1,18 @@
 """
-Runs a frozen stage-1 (GOES→VIIRS) checkpoint over every landsat-branch
-sample and writes the resulting VIIRS-resolution prediction as a GCS
-raster, then patches each sample's manifest JSON to point at it.
+Stage-1 Inference Pipeline.
+
+Runs a Stage-1 (GOES -> VIIRS) model checkpoint over Landsat-branch 
+samples to generate VIIRS-level fire probability predictions.
+Outputs are saved directly to Google Cloud Storage (GCS) as GeoTIFF rasters, 
+and corresponding sample manifests are updated with prediction metadata.
 
 Usage:
     python src/data/generate_stage1_predictions.py \
-    --config experiments/e2_haunet_cascaded_stage1.YAML \
-    --stage1-ckpt checkpoints/e2_haunet_cascaded_stage1_focal_dice/best_val_auprc.pt \
-    --output-key stage1_pred \
-    --overwrite \
-    --splits train val test
+        --config experiments/e2_haunet_cascaded_stage1.YAML \
+        --stage1-ckpt checkpoints/e2_haunet_cascaded_stage1_focal_dice/best_val_auprc.pt \
+        --output-key stage1_pred \
+        --overwrite \
+        --splits train val test
 """
 
 import argparse
@@ -39,9 +42,18 @@ MODEL_REGISTRY = {
 
 def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
     """
-    If checkpoint_path exists locally, use it as-is. Otherwise, attempt to
-    download the matching file from GCS (assuming the same filename lives
-    under gcs_ckpt_prefix) before failing.
+    Resolves local checkpoint path or fetches remote file from Google Cloud Storage.
+
+    Args:
+        checkpoint_path: Local target filepath for the checkpoint.
+        bucket_name: GCS target bucket name.
+        gcs_ckpt_prefix: Object prefix where model checkpoints are stored.
+
+    Returns:
+        str: Validated local path to the checkpoint file.
+
+    Raises:
+        FileNotFoundError: If checkpoint exists in neither local nor GCS storage.
     """
     local_path = Path(checkpoint_path)
     if local_path.exists():
@@ -68,6 +80,19 @@ def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_pre
 
 
 def load_stage1_model(ckpt_path, device, bucket_name=None, gcs_ckpt_prefix=None):
+    """
+    Loads trained Stage-1 model weights and configuration parameters from checkpoint.
+
+    Args:
+        ckpt_path: Local or remote target path to PyTorch checkpoint.
+        device: Torch evaluation compute device context (CPU/CUDA).
+        bucket_name: Name of GCS storage bucket.
+        gcs_ckpt_prefix: Remote GCS folder path for checkpoints.
+
+    Returns:
+        Tuple containing initialized PyTorch model, configuration dict, epoch integer, 
+        best metric name, and dictionary of best evaluation scores.
+    """
     if bucket_name and gcs_ckpt_prefix:
         ckpt_path = resolve_checkpoint_path(ckpt_path, bucket_name, gcs_ckpt_prefix)
     ckpt = torch.load(ckpt_path, map_location=device)
@@ -87,7 +112,15 @@ def load_stage1_model(ckpt_path, device, bucket_name=None, gcs_ckpt_prefix=None)
 
 
 def write_raster_to_gcs(bucket, gcs_path, array, ref_profile):
-    """array: (1, H, W) float32. ref_profile: rasterio profile to copy geo metadata from."""
+    """
+    Serialises a floating-point prediction matrix into a GeoTIFF and uploads to GCS.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket instance.
+        gcs_path: Destination key within GCS storage bucket.
+        array: Output prediction probability array with shape (1, H, W).
+        ref_profile: Reference GeoTIFF driver metadata profile.
+    """
     profile = ref_profile.copy()
     profile.update(
         dtype="float32",
@@ -106,7 +139,16 @@ def write_raster_to_gcs(bucket, gcs_path, array, ref_profile):
 
 
 def get_ref_profile(bucket, gcs_path):
-    """Read geo profile off an existing raster (e.g. the VIIRS target) to stamp onto the prediction."""
+    """
+    Retrieves spatial metadata profile from existing GCS GeoTIFF reference file.
+
+    Args:
+        bucket: Active Google Cloud Storage bucket instance.
+        gcs_path: Source key within GCS storage bucket.
+
+    Returns:
+        Dict: Rasterio geospatial metadata profile.
+    """
     raw = bucket.blob(gcs_path).download_as_bytes()
     with MemoryFile(raw) as memfile:
         with memfile.open() as src:

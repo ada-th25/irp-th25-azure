@@ -1,3 +1,20 @@
+"""
+Wildfire Multi-Modal Dataset Generation Pipeline.
+
+Ingests remote sensing data across satellite platforms (Landsat, GOES, VIIRS), 
+extracts localised patches, queries static/dynamic environmental covariates from 
+Google Earth Engine (GEE), and exports synchronised dataset pairs to Google Cloud Storage (GCS).
+
+Data Sources:
+    - Target Masks: Landsat-8 (Pereira et al., 2021) or active VIIRS FRP detections.
+    - Context Images: GOES-16/17 Advanced Baseline Imager (ABI).
+    - Environmental Covariates: Copernicus DEM (30m) & ESA WorldCover (10m -> 30m).
+
+Pipeline Architecture:
+    - Branch A (Landsat): Fixed 256x256 @ 30m binary targets aligned with temporal GOES scans.
+    - Branch B (VIIRS): Decoupled rasterized FRP targets stratified spatio-temporally over Americas.
+"""
+
 import io
 import os
 import re
