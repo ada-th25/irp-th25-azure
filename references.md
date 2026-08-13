@@ -372,3 +372,8 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 12/08/2026
     * **Scope:** Write code in `notebooks/explore_results_summary.ipynb` that plots the predictions of the models.
     * **Prompt:** (pasting the plotting script for reference) "Write code based on this that 1. builds model, loads checkpoint, runs inference on a chosen batch of samples (random or by explicit sample_id) 2. plot input reference 3. plot per-experiment 4. plots the cascade flow"
+
+* **Tool:** Google Gemini (3.6)
+    * **Date Used:** 13/08/2026
+    * **Scope:** Write docstrings in scripts for production-ready code: `src/train.py`, `src/evaluate.py`, `src/metrics.py`, `src/losses.py`, `src/data/generate_stage1_predictions.py`, `src/data/split_data.py`, `src/data/wildfire_dataset.py`
+    * **Prompt:** (pasting existing scripts) "Add docstrings to make this production-ready."
