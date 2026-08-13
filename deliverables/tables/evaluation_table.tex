@@ -11,7 +11,7 @@ E1: Full, No Target Dilation & 0.0103 & 0.0021 & 0.0021 & 0.3403 & 0.0030 & 0.02
 E1a: No Cov. Pyramid Enc. & 0.0098 & 0.0043 & 0.0043 & 0.4605 & 0.0039 & 0.03 (73/121) \\
 E1b: No DEM & 0.0050 & 0.0020 & 0.0020 & 0.3100 & 0.0033 & 0.02 (56/121) \\
 E1c: No Land Cover & 0.0054 & 0.0026 & 0.0026 & \textbf{0.5051} & 0.0020 & 0.02 (77/121) \\
-E1d: Dilated Target & \textbf{0.0163} & \textbf{0.0063} & \textbf{0.0072} & 0.3101 & \textbf{0.0043} & 0.07 (55/121) \\
+E1d: Dilated Target & \textbf{0.0187} & \textbf{0.0044} & \textbf{0.0044} & 0.3487 & \textbf{0.0041} & 0.04 (64/121) \\
 \hline
 \multicolumn{7}{l}{\textit{Cascaded (GOES->VIIRS->Landsat) - HAUNet}} \\
 E2.1a: Stage 1 (no dilation) & \textbf{0.1458} & \textbf{0.0651} & \textbf{0.0721} & 0.3582 & \textbf{0.0956} & 0.62 (807/1564) \\
@@ -20,8 +20,8 @@ E2.2a: Stage 2 (E2.1a input, dilated) & \textbf{0.0147} & \textbf{0.0108} & \tex
 E2.2b: Stage 2 (E2.1b input dilated) & 0.0134 & 0.0089 & 0.0095 & \textbf{0.2435} & \textbf{0.0104} & 0.10 (49/121) \\
 \hline
 \multicolumn{7}{l}{\textit{Direct (GOES->Landsat) - Autoencoder}} \\
-E3: Full, No Target Dilation & 0.0120 & \textbf{0.0064} & \textbf{0.0077} & 0.2592 & \textbf{0.0050} & 0.07 (51/121) \\
-E3d: Dilated Target & \textbf{0.0134} & 0.0060 & 0.0062 & \textbf{0.4184} & 0.0039 & 0.05 (77/121) \\
+E3: Full, No Target Dilation & \textbf{0.0120} & \textbf{0.0064} & \textbf{0.0077} & 0.2592 & 0.0050 & 0.07 (51/121) \\
+E3d: Dilated Target & 0.0078 & 0.0063 & 0.0067 & \textbf{0.3467} & \textbf{0.0063} & 0.05 (67/121) \\
 \hline
 \multicolumn{7}{l}{\textit{Cascaded pipeline - Autoencoder}} \\
 E4.1: Stage 1 (no dilation) & 0.1408 & 0.0505 & 0.0516 & 0.6145 & 0.0563 & 0.33 (1123/1564) \\
