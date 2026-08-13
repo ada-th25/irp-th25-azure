@@ -121,7 +121,7 @@ However, many downscaling architectures are optimised for texture-rich images. T
 
 Models that downscale across large reoslution gaps with only the coarse fire input have to rely on the learned spatial patterns from the coarse data. While wildfires are influenced by physical factors such as terrain and landcover (\cite{sullivanInfernoFundamentalProcesses2017}), generic super-resolution models omit this information. Providing HR covariates provides additional context and constraints the model can learn from, which can help mitigate the ill-posed nature of the downscaling problem.
 
-Existing literature is dominated by direct, single-model downscaling across the full resolution gap. While multi-stage or task-decoupled downscaling methods exist (such as \cite{liUnmixingBasedSpatiotemporalImage2023} that combines spatial mixing with residual compensation, or decoupling classification and regression \cite{wangTwoStageMachineLearning2026}), no prior work researches cascaded DL downscaling, particularly for wildfire applications. Specifically, no prior work evaluates a multi-stage physical downscaling pipeline that sequentially trains distinct model architectures supervised by independent satellite target datasets at intermediate spatial resolutions (e.g. training Stage 1 to map $2\text{km} \rightarrow 375\text{m}$ using VIIRS target grids, and Stage 2 to map $375\text{m} \rightarrow 30\text{m}$ using Landsat/Sentinel target grids). It neither explores the trade-off between the reduced per-stage resolution gap and the accumulation of error across stages.
+Existing literature is dominated by direct, single-model downscaling across the full resolution gap. While multi-stage or task-decoupled downscaling methods exist (such as \cite{liUnmixingBasedSpatiotemporalImage2023} that combines spatial mixing with residual compensation, or decoupling classification and regression \cite{wangTwoStageMachineLearning2026}), no prior work researches cascaded DL downscaling, particularly for wildfire applications. Specifically, no prior work evaluates a multi-stage physical downscaling pipeline that sequentially trains model architectures trained with independent satellite target datasets at intermediate spatial resolutions (e.g. training Stage 1 to map $2\text{km} \rightarrow 375\text{m}$ using VIIRS target grids, and Stage 2 to map $375\text{m} \rightarrow 30\text{m}$ using Landsat/Sentinel target grids). Existing research also has not explored the trade-off between the reduced per-stage resolution gap and the accumulation of error across stages.
 
 To address these gaps, the objectives of this project are:
 \begin{enumerate}
@@ -322,11 +322,13 @@ E1a & HAUNet      & Direct         & No pyramid encoder               & Ablation
 E1b & HAUNet      & Direct         & No DEM                           & Ablation: DEM contribution \\
 E1c & HAUNet      & Direct         & No land cover                    & Ablation: land cover contribution \\
 E1d & HAUNet      & Direct         & Full, dilated target ($k{=}7$) & Ablation: target representation (dilated vs.\ default) \\
-E2.1  & HAUNet      & Cascaded (S1)  & Full        & Direct vs.\ cascaded \\
-E2.2  & HAUNet      & Cascaded (S2)  & Best config.\ from E1 ablations  & Direct vs.\ cascaded \\
+E2.1a  & HAUNet      & Cascaded (S1)  & Full, no dilation      & Direct vs.\ cascaded \\
+E2.1b  & HAUNet      & Cascaded (S1)  & Full, dilated targets ($k{=}3$)      & Ablation: target representation \\
+E2.2a  & HAUNet      & Cascaded (S2)  & Best config.\ from E1, E2.1a input & Direct vs.\ cascaded \\
+E2.2b  & HAUNet      & Cascaded (S2)  & Best config.\ from E1, E2.1b input & Ablation: target representation \\
 E3  & Autoencoder & Direct         & Full                             & Baseline comparison \\
 E3d & Autoencoder & Direct         & Full, dilated target                       & Baseline comparison, matched to E1d \\
-E4  & Autoencoder & Cascaded       & Full                             & Baseline, cascaded pipeline \\ \hline
+E4  & Autoencoder & Cascaded       & Full, same config.\ as best E2                             & Baseline, cascaded pipeline \\ \hline
 \end{tabularx}
 \end{table}
 
@@ -339,16 +341,27 @@ In addition to default configuration, the autoencoder was also trained using the
         \text{AUPRC} = \sum_{k} (R_k - R_{k-1}) P_k
     \end{equation}
     where $P_k$ and $R_k$ represent precision and recall evaluated at the $k$-th threshold operating point. This is selected as the primary metric for evaluation as it is threshold-independent and less sensitive to extreme class imbalance. It captures the trade-off between precision and recall across all thresholds.
+
+    \item \textbf{IOU (Intersection over Union):} Measures the overlap between predicted and ground truth. Given a binary prediction mask $\hat{Y} \in \{0,1\}^{H\times W}$ and binary target mask $Y \in \{0,1\}^{H\times W}$:
+    \begin{equation}
+        \text{IoU}(\hat{Y}, Y) = \frac{|\hat{Y} \cap Y|}{|\hat{Y} \cup Y|}
+        = \frac{\sum_{i,j} \hat{Y}_{ij} Y_{ij}}
+            {\sum_{i,j} \left[ \hat{Y}_{ij} + Y_{ij} - \hat{Y}_{ij} Y_{ij} \right]}
+        \label{eq:iou}
+    \end{equation}
+
     \item \textbf{Boundary F1:} Restricts precision and recall to fire-perimeter only, obtained by morphological erosion of the predicted and ground truth masks. This isolates edge/shape accuracy from interior-region, which pixel-level F1 can mask:
     \begin{equation}\label{eq:boundary_f1}
         \text{F1}_b = 2 \cdot \frac{\text{Prec}_b \cdot \text{Rec}_b}{\text{Prec}_b + \text{Rec}_b + \epsilon}
     \end{equation}
     where $\text{Prec}_b$ and $\text{Rec}_b$ are precision and recall computed only over boundary pixels of the predicted and ground truth masks.
+
     \item \textbf{Precision and Recall:} Evaluates the model's ability to correctly identify fire pixels (precision) and capture all true fire pixels (recall) (\cite{saitoPrecisionRecallPlotMore2015}):
     \begin{equation}\label{eq:precision_recall}
         \text{Precision} = \frac{TP}{TP + FP + \epsilon}, \quad \text{Recall} = \frac{TP}{TP + FN + \epsilon}
     \end{equation}
     Where $TP$, $FP$, and $FN$ represent true positive, false positive, and false negative counts across the spatial grid, and $\epsilon = 10^{-8}$ prevents division by zero.
+
     \item \textbf{IPSNR (Intersection Peak Signal-to-Noise Ratio):} Measures the quality of predicted outputs within the intersection of predicted and ground truth fire regions (\cite{badhanDeepLearningApproach2024}):
     \begin{equation}\label{eq:ipsnr}
     IPSNR = \log_{10}\left(\frac{\max(val)}{IRMSE}\right)
@@ -359,7 +372,7 @@ In addition to default configuration, the autoencoder was also trained using the
     where $y_i$ and $\hat{y}_i$ are the ground truth and predicted pixel values, and $I$ is an indicator function that selects only pixels where both the prediction and ground truth are non-zero. This is used over standard PSNR because the extreme sparsity of fire pixels means that PSNR is dominated by background pixels.
 \end{itemize}
 
-For Boundary F1, Precision, Recall, and IPSNR, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled masks (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
+For Boundary F1, IOU, Precision, Recall, and IPSNR, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled masks (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
 
 \begin{equation}\label{eq:otsu}
     \sigma_B^2(t) = \omega_0(t)\,\omega_1(t)\,\left(\mu_0(t) - \mu_1(t)\right)^2, \qquad t^* = \operatorname*{arg\,max}_{t} \; \sigma_B^2(t)
@@ -389,7 +402,9 @@ IPSNR is computed only over the union of predicted and ground-truth fire regions
 
 \section{Discussions} \label{sec:discussion}
 
-From the direct HAUNet experiments in Table \ref{tab:all_results}, the use of both ovariates doubled AUPRC (0.54/0.50 $\to$ 0.103). Ablation of DEM or land cover individually reduced performance, but this was greater observed in no DEM than land cover, suggesting that terrain information is more important for accurate fire downscaling than land cover in this context.
+%From the direct HAUNet experiments in Table \ref{tab:all_results}, the use of both covariates doubled AUPRC (0.54/0.50 $\to$ 0.103). Ablation of DEM or land cover individually reduced performance, but this was greater observed in no DEM than land cover, suggesting that terrain information is more important for accurate fire downscaling than land cover in this context.
+
+%IPSNR values are much lower than those reported by \cite{badhanDeepLearningApproach2024}. This is not directly comparable given their continuous BT target versus this project's binary image output and considerably higher target sparsity, and the low contributing sample counts further reduce the reliability of this metric.
 
 A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. A consequence is that any error in Stage 1 propagates into Stage 2's training, meaning Stage 2 also learns to downscale Stage 1's errors alongside fire information. While cascading may reduce error from the resolution gap, it introduces source of error from stage-to-stage prediction dependency.
 
