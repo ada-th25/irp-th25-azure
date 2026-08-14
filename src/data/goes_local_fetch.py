@@ -1,3 +1,11 @@
+"""GOES-16/17 GCS Data Fetching and Spatial Reprojection Pipeline.
+
+This module provides thread-safe utilities to search, download, cache, and reproject
+multichannel full-disk imagery from the GOES-R series (GOES-16/17) satellite.
+It converts raw ABI-L2-MCMIPF NetCDF files into spatial target tensors (CMI_C07, CMI_C14,
+and Thermal Fire Index) reprojected to local coordinate reference systems (e.g. UTM).
+"""
+
 import os
 import re
 import threading
