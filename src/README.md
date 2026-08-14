@@ -16,18 +16,18 @@ Deep learning pipeline for wildfire super-resolution downscaling (GOES → VIIRS
 │   ├── models/                              # Models
 │   │   ├── autoencoder.py                   # Baseline autoencoder
 │   │   └── haunet.py                        # HAUNet
-│   └── utils/                               # Utilities
-│       ├── check_class_balance.py           # Class distribution analysis
-│       ├── compute_dem_stats.py             # Calculates DEM normalisation statistics
-│       ├── compute_goes_stats.py            # Calculates GOES normalisation statistics
-│       ├── enrich_manifests.py              # Appends validity flags to GCS JSON manifests
-│       ├── plot_loss.py                     # Training loss curve visualisation
-│       ├── plot_predictions.py              # Predictions visualisation script
-│       └── postprocess.py                   # Raster post-processing and spatial ops
-├── evaluate.py                              # Evaluation script
-├── losses.py                                # Loss functions
-├── metrics.py                               # Metrics functions
-└── train.py                                 # Training script
+│   ├── utils/                               # Utilities
+│   │   ├── check_class_balance.py           # Class distribution analysis
+│   │   ├── compute_dem_stats.py             # Calculates DEM normalisation statistics
+│   │   ├── compute_goes_stats.py            # Calculates GOES normalisation statistics
+│   │   ├── enrich_manifests.py              # Appends validity flags to GCS JSON manifests
+│   │   ├── plot_loss.py                     # Training loss curve visualisation
+│   │   ├── plot_predictions.py              # Predictions visualisation script
+│   │   └── postprocess.py                   # Raster post-processing and spatial ops
+│   ├── evaluate.py                          # Evaluation script
+│   ├── losses.py                            # Loss functions
+│   ├── metrics.py                           # Metrics functions
+│   └── train.py                             # Training script
 ```
 
 ## Pipeline order

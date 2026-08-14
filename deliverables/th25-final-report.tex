@@ -178,7 +178,7 @@ Landsat-8 Fire Masks & 30 m & Active Fire Mask \cite{dealmeidapereiraActiveFireD
 VIIRS S-NPP & 375 m & I4 (3.74~$\mu$m, Active Fire) & Intermediate target / cascaded-pipeline input (FRP, NASA FIRMS) \\
 GOES-16/17 (ABI) & 2000 m & Ch.\,7 (3.9~$\mu$m), Ch.\,14 (11.2~$\mu$m) & Coarse fire input; brightness temperature, high temporal frequency \\
 Copernicus DEM & 30 m & DEM & Static covariate; terrain effects on fire spread \\
-ESA WorldCover & 10 m & Landcover (11 classes) & Static covariate; land cover map \\ \hline
+ESA WorldCover & 10 m & Landcover (10 classes) & Static covariate; land cover map \\ \hline
 \end{tabularx}
 \end{table}
 
@@ -235,6 +235,8 @@ The main encoder-decoder path produces low-resolution feature representations ($
     \item Upsampled features are concatenated with matching scale representations extracted from the Covariate Pyramid Encoder.
     \item A $3 \times 3$ fusion convolution maps concatenated features back to channel dimension.
 \end{enumerate}
+
+The final layer of the HAUNet refinement network outputs prediction at the resolution of the full covariate grid ($256 \times 256$). Operating the decoder at full resolution preserves fine-grained spatial feature representations across skip connections and covariate channels. This is same for Stage 1 (GOES $\to$ VIIRS) model output for cascaded pipeline. Rather than constraining the output's resolution to match the coarse VIIRS target grid ($20 \times 20$), HAUNet outputs high-resolution spatial feature maps. During metric evaluatation of the Stage 1 model, the outputs are pooled to VIIRS resolution to match VIIRS target.
 
 \begin{figure}[htbp]
     \centering
@@ -339,6 +341,9 @@ E4  & Autoencoder & Cascaded       & Full, same config.\ as best E2             
 In addition to default configuration, the autoencoder was also trained using the same target representation as HAUNet's best-performing configuration (dilated target, Section \ref{sec:results}).
 
 \subsection{Evaluation Metrics}
+
+For the Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \times 256$) with the target ($20 \times 20$), an adaptive spatial max-pooling was applied to the output logits before calculating loss and metrics. All reported quantitative metrics including IoU, Boundary F1, AUPRC, and Centroid Distance reflect performance evaluated on the coarse $20 \times 20$ target.
+
 \begin{itemize}
     \item \textbf{AUPRC (Area Under the Precision-Recall Curve):} Measures the performance of the model across different thresholds, making it suitable for imbalanced datasets (\cite{davisRelationshipPrecisionRecallROC2006}):
     \begin{equation}\label{eq:auprc}
@@ -406,10 +411,27 @@ IPSNR is computed only over the union of predicted and ground-truth fire regions
 
 \section{Discussions} \label{sec:discussion}
 
-%From the direct HAUNet experiments in Table \ref{tab:all_results}, the use of both covariates doubled AUPRC (0.54/0.50 $\to$ 0.103). Ablation of DEM or land cover individually reduced performance, but this was greater observed in no DEM than land cover, suggesting that terrain information is more important for accurate fire downscaling than land cover in this context.
+\subsection{Overall Performance}
+Across configurations, absolute performance is generally low (most < 0.1 AUPRC and IOU). But all exceed both the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background. But this should be taken as evidence of a working model rather than deployment-ready model.
 
-%IPSNR values are much lower than those reported by \cite{badhanDeepLearningApproach2024}. This is not directly comparable given their continuous BT target versus this project's binary image output and considerably higher target sparsity, and the low contributing sample counts further reduce the reliability of this metric.
+Direct numerical comparison with \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution (2km $\to$ 375m single-stage vs. this study's 2km $\to$ 30m direct and cascaded mapping), prediction target (continuous BT regression vs. binary fire segmentation), and evaluation method. However, their reported IOU values (0.03-0.24) shows that even a single smaller resolution jump and less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$) still results in modest overlap. This suggests that the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
 
+\subsection{Cascaded vs. Direct Pipeline}
+Comparing best configurations, the cascaded model's benefit over direct depends on the metric. For HAUNet, Stage 2 (E2.2a: IoU 0.0108, AUPRC 0.0147) outperforms the best direct configuration (E1d: IoU 0.0044, AUPRC 0.0187) on IoU but not AUPRC. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in IoU/overlap-based metrics) but not necessarily improve confidence. Stage 1 metrics are much higher than either Stage 2 or direct-pipeline numbers (e.g. E2.1a AUPRC 0.1458), but this is due to Stage 1 metric being evaluated at the VIIRS target resolution ($20 \times 20$). So metrics are not directly comparable.
+
+\subsection{Precision/Recall imbalance and threhsolding}
+Across nearly every configuration, Recall exceeds Precision after Otsu thresholding (e.g. E1c: Recall 0.5051 vs. Precision 0.0026; E1d: Recall 0.3487 vs. Precision 0.0044). This indicates the models are over-predicting positive (fire) pixels relative to the true sparse fire extent. However, in context of insurance, over-predicting fire pixels may be preferable to under-predicting, as false negatives (missed fire pixels) could have more severe consequences than false positives (over-predicted fire pixels). It also raises a question about whether Otsu is well-suited to thresholding predictions, as it assumes a roughly bimodal (two peaks) intensity distribution. A fixed threshold or one derived from the validation PR curve may be worth comparing in future work.
+
+\subsection{Effect of Target Dilation}
+Dilating the target mask improves AUPRC and IoU for HAUNet's direct configuration (E1d vs. E1: AUPRC 0.0187 vs 0.0103, IoU 0.0044 vs 0.0021) but not for the Autoencoder (E3d vs. E3: AUPRC 0.0098 vs 0.0120, IoU 0.0057 vs 0.0064, both lower with dilation). This may be because dilation allows for smoothing/tolerance for models like HAUNet that uses attention mechanisms to capture fine-grained information, while Autoencoder may benefit less from this beauce their convolutional nature are already prone to smoothing and wider predictions. This is consistent with the higher recall.
+
+\subsection{Feature Ablations}
+Out of direct HAUNet ablations, removing DEM (E1b) produces weakest performance (AUPRC 0.0050, IoU 0.0020) compared to full model (E1: AUPRC 0.0103, IoU 0.0021). This suggests topography is an important information that contributes to the model's ability to predict fire fronts. Removing land cover (E1c) increases Recall (0.5051, the highest in this group) but lower Boundary F1 (0.0020, the lowest in the group), suggesting that land cover helps produce more spatially precise predictions. Removing the covariate pyramid encoder (E1a) gives intermediate results across most metrics, suggesting it contributes some but not as much as DEM.
+
+\subsection{HAUNet vs. Autoencoder direct downscaling}
+In direct downscaling, Autoencoder outperforms HAUNet across AUPRC (0.0120 vs 0.0103) and IoU (0.0064 vs 0.0021). One possibility is because HAUNet is designed for fine-grained cross-channel and spatial dependencies in natural-images, and may be less suited to extremely coarse input (GOES) and sparse target which carries less information for the model to exploit.
+
+\subsection{Limitations of Cascaded Pipeline}
 A limitation of the cascaded pipeline is the use of Stage 2's intermediate predictions. Because true matching VIIRS/Landsat pairs are unavailable, Stage 2 is trained using Stage 1's predicted VIIRS-resolution masks rather than true VIIRS observations. A consequence is that any error in Stage 1 propagates into Stage 2's training, meaning Stage 2 also learns to downscale Stage 1's errors alongside fire information. While cascading may reduce error from the resolution gap, it introduces source of error from stage-to-stage prediction dependency.
 
 \section{Conclusions}
