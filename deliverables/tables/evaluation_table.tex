@@ -11,22 +11,22 @@ E1: Full, No Target Dilation & 0.0103 & 0.0021 & 0.0021 & 0.3403 & 0.0030 \\
 E1a: No Cov. Pyramid Enc. & 0.0098 & 0.0043 & 0.0043 & 0.4605 & 0.0039 \\
 E1b: No DEM & 0.0050 & 0.0020 & 0.0020 & 0.3100 & 0.0033 \\
 E1c: No Land Cover & 0.0054 & 0.0026 & 0.0026 & \textbf{0.5051} & 0.0020 \\
-E1d: Dilated Target & \textbf{0.0187} & \textbf{0.0044} & \textbf{0.0044} & 0.3487 & \textbf{0.0041} \\
+E1d: Dilated Target & \textbf{0.0188} & \textbf{0.0044} & \textbf{0.0044} & 0.3490 & \textbf{0.0041} \\
 \hline
 \multicolumn{6}{l}{\textit{Cascaded (GOES->VIIRS->Landsat) - HAUNet}} \\
 E2.1a: Stage 1 (no dilation) & \textbf{0.1458} & \textbf{0.0651} & \textbf{0.0721} & 0.3582 & \textbf{0.0956} \\
 E2.1b: Stage 1 (dilated) & 0.1408 & 0.0505 & 0.0516 & \textbf{0.6145} & 0.0563 \\
-E2.2a: Stage 2 (E2.1a input, dilated) & \textbf{0.0147} & \textbf{0.0108} & \textbf{0.0125} & 0.1365 & 0.0099 \\
-E2.2b: Stage 2 (E2.1b input dilated) & 0.0134 & 0.0089 & 0.0095 & \textbf{0.2435} & \textbf{0.0104} \\
+E2.2a: Stage 2 (E2.1a input, dilated) & \textbf{0.0142} & 0.0072 & 0.0074 & 0.2065 & 0.0071 \\
+E2.2b: Stage 2 (E2.1b input dilated) & 0.0134 & \textbf{0.0089} & \textbf{0.0095} & \textbf{0.2435} & \textbf{0.0104} \\
 \hline
 \multicolumn{6}{l}{\textit{Direct (GOES->Landsat) - Autoencoder}} \\
 E3: Full, No Target Dilation & \textbf{0.0120} & \textbf{0.0064} & \textbf{0.0077} & 0.2592 & \textbf{0.0050} \\
 E3d: Dilated Target & 0.0098 & 0.0057 & 0.0058 & \textbf{0.5908} & 0.0045 \\
 \hline
 \multicolumn{6}{l}{\textit{Cascaded pipeline - Autoencoder}} \\
-E4.1: Stage 1 (no dilation) & 0.1408 & 0.0505 & 0.0516 & 0.6145 & 0.0563 \\
-E4.2a: Stage 2 (no dilation) & 0.0185 & 0.0070 & 0.0070 & 0.3211 & 0.0060 \\
-E4.2b: Stage 2 (dilated targets) & \textbf{0.0194} & \textbf{0.0072} & \textbf{0.0072} & \textbf{0.3982} & \textbf{0.0069} \\
+E4.1: Stage 1 (no dilation) & 0.0944 & 0.0327 & 0.0367 & 0.3966 & 0.0500 \\
+E4.2a: Stage 2 (no dilation) & 0.0106 & \textbf{0.0065} & \textbf{0.0080} & 0.2761 & 0.0037 \\
+E4.2b: Stage 2 (dilated targets) & \textbf{0.0106} & 0.0056 & 0.0058 & \textbf{0.4565} & \textbf{0.0040} \\
 \hline
 Baseline: All-Zero & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\
 Baseline: Prevalence-Rate & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\

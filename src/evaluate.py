@@ -78,7 +78,7 @@ def build_model(cfg, device):
     ).to(device)
     return model
 
-def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
+def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_prefix: str, force_gcs: bool = False) -> str:
     """
     Ensures local availability of the target model checkpoint file.
 
@@ -97,7 +97,7 @@ def resolve_checkpoint_path(checkpoint_path: str, bucket_name: str, gcs_ckpt_pre
         FileNotFoundError: If the checkpoint cannot be located locally or remotely.
     """
     local_path = Path(checkpoint_path)
-    if local_path.exists():
+    if local_path.exists() and not force_gcs:
         return str(local_path)
 
     print(f"  [INFO] Checkpoint not found locally at {local_path} -- "
@@ -314,6 +314,11 @@ def main():
                         help="Also save raw sigmoid prediction arrays (.npy) per sample.")
     parser.add_argument("--preds-dir", default=None,
                         help="Directory to save predictions to (default: <log_dir>/<exp_name>_preds).")
+    parser.add_argument("--force-gcs", action="store_true",
+                        help="Always re-download the checkpoint from GCS, even if a file "
+                             "already exists locally at --checkpoint. Use this to avoid "
+                             "silently reusing a stale local checkpoint left over from a "
+                             "previous eval run that happened to write to the same local path.")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -372,7 +377,9 @@ def main():
     # Model
     # ------------------------------------------------------------------
     gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
-    resolved_checkpoint = resolve_checkpoint_path(args.checkpoint, bucket_name, gcs_ckpt_prefix)
+    resolved_checkpoint = resolve_checkpoint_path(
+        args.checkpoint, bucket_name, gcs_ckpt_prefix, force_gcs=args.force_gcs
+    )
     ckpt = torch.load(resolved_checkpoint, map_location=device)
 
     model_cfg = ckpt.get("config", cfg)

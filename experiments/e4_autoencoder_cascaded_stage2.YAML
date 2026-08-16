@@ -7,7 +7,7 @@
 # =============================================================
 
 experiment:
-  name: e4_autoencoder_cascaded_stage2_focal_dice_dilated
+  name: e4_autoencoder_cascaded_stage2_focal_dice_dilated_v2
   branch: landsat
 
 model:
@@ -30,7 +30,7 @@ data:
   cov_channels: 11
   num_workers: 2
   use_stage1_pred: true
-  stage1_pred_key: autoencoder_focal_dice_stage1_pred # Use outputs from stage 1 trained on undilated targets
+  stage1_pred_key: autoencoder_stage1_pred #autoencoder_focal_dice_stage1_pred # Use outputs from stage 1 trained on undilated targets
   stage1_channels: 1
 
 training:
@@ -81,7 +81,7 @@ loss:
 # =============================================================
 
 # experiment:
-#   name: e4_autoencoder_cascaded_stage2_focal_dice
+#   name: e4_autoencoder_cascaded_stage2_focal_dice_v2
 #   branch: landsat
 
 # model:
@@ -102,7 +102,7 @@ loss:
 #   cov_channels: 11
 #   num_workers: 2
 #   use_stage1_pred: true
-#   stage1_pred_key: autoencoder_focal_dice_stage1_pred # Use outputs from stage 1 trained on undilated targets
+#   stage1_pred_key: autoencoder_stage1_pred #autoencoder_focal_dice_stage1_pred # Use outputs from stage 1 trained on undilated targets
 #   stage1_channels: 1
 
 # training:
