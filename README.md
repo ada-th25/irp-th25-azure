@@ -18,7 +18,7 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 Best-performing configuration per architecture/pipeline group (by AUPRC), evaluated on Otsu-thresholded post-processed predictions. See [`deliverables/tables/evaluation_table.tex`](deliverables/tables/evaluation_table.tex) for full results.
 
 | Architecture | Pipeline | AUPRC | IoU | Boundary F1 |
-| :--- | :--- | :---: | :---: | :---: | :---: |
+| :--- | :--- | :---: | :---: | :---: |
 | **Autoencoder** | Direct | 0.0120 | 0.0064 | 0.0050 |
 | **Autoencoder** | Cascaded | 0.0106 | 0.0065 | 0.0037 |
 | **HAUNet** | Direct | 0.0188 | 0.0044 | 0.0041 |

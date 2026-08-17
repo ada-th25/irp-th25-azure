@@ -394,9 +394,16 @@ The best model checkpoint for final evaluation was selected based on the highest
 
 \section{Results}\label{sec:results}
 
-The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. Example predictions for the best Autoencoer and HAUNet configuration are shown in Figure \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} respectively.
+The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. Example predictions for the best Autoencoer and HAUNet configuration are shown in Figure \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} respectively. Figure \ref{fig:pr_curves} shows the Precision-Recall (PR) curves across representative models compared to the random baseline.
 
 \input{tables/evaluation_table.tex}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\linewidth]{figures/pr_curve_all_best.png}
+    \caption{Precision-Recall curves for best Direct and Cascaded configurations (E1d, E2.2a, E3, E4.2b) against the random baseline (Prevalence-Rate = $6.18 \times 10^{-4}$). Curves evaluate raw probability outputs across all decision thresholds.}
+    \label{fig:pr_curves}
+\end{figure}
 
 \begin{figure}[htbp]
     \centering
@@ -415,24 +422,26 @@ The evaluation results for the direct and cascaded pipelines are summarised in T
 \section{Discussions} \label{sec:discussion}
 
 \subsection{Overall Performance}
-Across configurations, absolute performance is generally low (most < 0.1 AUPRC and IOU). But all exceed both the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background. But this should be taken as evidence of a working model rather than deployment-ready model.
+Across configurations, absolute performance is generally low (most < 0.02 AUPRC and IOU). But all exceed both the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background. But this should be taken as evidence of a working model rather than deployment-ready model.
 
 Direct numerical comparison with similar work in \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution (2km $\to$ 375m single-stage vs. this study's 2km $\to$ 30m direct and cascaded mapping), prediction target (continuous BT regression vs. binary fire segmentation), and evaluation method. However, their IOU values (0.03-0.24) shows that even a single smaller resolution jump, less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$), and more target dataset (their 5,869 samples vs. 1,202 Landsat target samples in this study) still results in modest overlap. This suggests that the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
 
 \subsection{Cascaded vs. Direct Pipeline}
-For HAUNet, Stage 2 (E2.2a: IoU 0.0072, Precision 0.0074, AUPRC 0.0142 Boundary F1 0.0071, E2.2b: IOU 0.0089, Precision 0.0095, Boundary F1 0.0104) outperforms the best direct configuration (E1d: IoU 0.0044, Precision 0.0044, AUPRC 0.0188, Boundary F1 0.0041) on all metrics except AUPRC and Recall. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in overlap-based metrics) but not necessarily improve confidence. Using HAUNet dilated Stage 1 input (E2.2b) yields better IoU, Precision, Recall and Boundary F1 than using undilated input (E2.2a). Stage 1 metrics are much higher than either Stage 2 or direct-pipeline (e.g. E2.1a AUPRC 0.1458), but this is due to Stage 1 metric being evaluated at VIIRS target and resolution ($20 \times 20$). So metrics are not directly comparable.
+For HAUNet, Stage 2 (E2.2a: IoU 0.0072, Precision 0.0074, AUPRC 0.0142 Boundary F1 0.0071, E2.2b: IOU 0.0089, Precision 0.0095, Boundary F1 0.0104) outperforms the best direct configuration (E1d: IoU 0.0044, Precision 0.0044, AUPRC 0.0188, Boundary F1 0.0041) on all metrics except AUPRC and Recall. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in overlap-based metrics) but not necessarily improve confidence ranking. Stage 1 metrics are much higher than either Stage 2 or direct-pipeline (e.g. E2.1a AUPRC 0.1458), but this is due to Stage 1 metric being evaluated at VIIRS target and resolution ($20 \times 20$). So metrics are not directly comparable.
 
-The divergence between AUPRC and the overlap-based metrics (IoU, Precision, Boundary F1) are seen across comparisons. AUPRC is computed over continuous predictions and reflects how well the model ranks pixels by confidence across all thresholds. IoU, Precision, and Boundary F1, are computed only after Otsu thresholding. They depend on the specific binary mask produced at one particular threshold, not the full confidence ranking. A model can improve its behaviour at specific Otsu threshold (e.g. producing a more spatially coherent, better-localised binary region) without improving its overall confidence across all thresholds. This is a possible explanation for why the cascaded stage, and dilated inputs, improve overlap-based metrics for HAUNet while not improving AUPRC.
+For the Autoencoder, there is similar pattern. The direct configuration achieves highest AUPRC (E3: 0.0120), while cascaded Stage 2 achieve only slightly better IoU and Precision (E4.2a: IoU 0.0065, Precision 0.0080 vs. E3: IoU 0.0064, Precision 0.0077) and higher Recall (E4.2b: 0.4565 vs. E3: 0.2592). Errors from Stage 1 prediction propagate into Stage 2 training inputs, introducing noise that lowers confidence quality (AUPRC).
 
-For the Autoencoder, there is no clear winner between cascaded and direct. The direct configuration achieves highest AUPRC (E3: 0.0120) and Boundary F1 (0.0050), while cascaded Stage 2 achieve only slightly better IoU and Precision (E4.2a: IoU 0.0065, Precision 0.0080 vs. E3: IoU 0.0064, Precision 0.0077) and higher Recall (E4.2b: 0.4565 vs. E3: 0.2592). This may be due to error-propagation: because Stage 2 is trained on Stage 1's predicted VIIRS-resolution mask rather than ground truth, any error in Stage 1's output propagates into Stage 2. AUPRC, however, depends on the fine-grained ranking of raw prediction confidence across thresholds, which is sensitive to errors from Stage 1 input. This may explain why AUPRC, rather than the overlap metrics, is lower for the cascaded Autoencoder pipeline. For the Autoencoder, cascading appears to trade some ranking precision for comparable or slightly improved spatial coverage, though the effect is smaller and less consistent than for HAUNet.
+The divergence between AUPRC and the overlap-based metrics (IoU, Precision, Boundary F1) are seen across comparisons. Because AUPRC is computed over continuous predictions and reflects how well the model ranks pixels by confidence across all thresholds. IoU, Precision, and Boundary F1, are computed only after Otsu thresholding. They depend on the binary mask produced only at one particular threshold. A model can improve performance at specific Otsu threshold (e.g. producing a more spatially coherent, better-localised binary region) without improving its overall confidence across all thresholds. This is a possible explanation for why the cascaded stage, and dilated inputs, improve overlap-based metrics for HAUNet while not improving AUPRC.
 
-Across HAUNet and Autoencoder configurations, cascaded HAUNet achieves highest precision, AUPRC and Boundary F1, but direct HAUNet outperforms direct Autoencoder on only AUPRC. Explanation for this is supported by Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions}: Autoencoder raw outputs are broader and lower-confidence than HAUNet's across both Stage 1 and direct mapping. This also explains the high overlap-metrics for the Autoencoder, as they predict a broader area, and after Otsu thresholding it still yields a well-localised mask.
+\subsection{HAUNet vs. Autoencoder Architecture Comparison}
+Comparing best Stage 2 configurations, HAUNet outperforms the Autoencoder:
+\begin{itemize}
+    \item \textbf{Cascaded Pipeline:} HAUNet leads autoencoder on AUPRC (E2.2a: 0.0142 vs. E4.2a / E4.2b: 0.0106), IoU (E2.2b: 0.0089 vs. E4.2a: 0.0065), Precision (0.0095 vs. 0.008) and Boundary F1 (0.0104 vs. 0.004).
+    \item \textbf{Direct Pipeline:} HAUNet leads Autoencoder on AUPRC (E1d: 0.0188 vs. E3: 0.0120), Recall (0.3490 vs. 0.2592). While direct Autoencoder achieves higher IoU (0.0064 vs. 0.0044) and Precision (0.0077 vs. 0.0044).
 
-\subsection{HAUNet vs. Autoencoder in the cascaded pipeline}
-Comparing best Stage 2 configurations, HAUNet outperforms the Autoencoder on AUPRC (E2.2a: 0.0142 vs. E4.2a/E4.2b: 0.0106) and IoU (E2.2b: 0.0089 vs. E4.2a: 0.0065). For direct-mapping results, HAUNet led only on AUPRC (E1d: 0.0188 vs. E3: 0.0120) while the Autoencoder led on IoU, Precision, and Boundary F1 (E3: IoU 0.0064, Precision 0.0077, Boundary F1 0.0050 vs. E1d: IoU 0.0044, Precision 0.0044, Boundary F1 0.0041). Possible explanation is because the HAUNet Stage 1 results performed better than Autoencoder Stage 1 (E2.1a: AUPRC 0.1458 vs. E4.1: AUPRC 0.0944), meaning HAUNet Stage 2 was trained on better inputs. Suggesting the differences in the Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions affect results. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
+\end{itemize}
 
-\subsection{HAUNet vs. Autoencoder direct downscaling}
-Comparing best configurations, HAUNet leads on AUPRC (E1d: 0.0188 vs. E3: 0.0120) while the Autoencoder leads on IoU, Precision, and Boundary F1 (E3: IoU 0.0064, Precision 0.0077, Boundary F1 0.0050 vs. E1d: IoU 0.0044, Precision 0.0044, Boundary F1 0.0041). One possibility is that HAUNet's attention mechanisms, designed for fine-grained cross-channel and spatial dependencies in natural images, are less suited to the extremely coarse GOES input and sparse target, which may carry less exploitable structure for attention to produce precise predictions.
+Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} confirm this behavior: Autoencoder predictions produce broader, low-confidence regions, likely due to their convolutional nature. After Otsu thresholding, these wider predictions cover larger ground areas, yielding higher point precision/IoU at the cost of spatial localisation. HAUNet produces sharper predictions with higher overall confidence ranking (PR curves in \ref{fig:pr_curves}). Furthermore, HAUNet Stage 1 provides higher-quality inputs to Stage 2 (E2.1a AUPRC 0.1458 vs. E4.1 AUPRC 0.0944) meaning less severe error propagation in the cascaded pipeline. Suggesting the results differ by Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
 
 \subsection{Precision/Recall imbalance and threhsolding}
 Across most configuration, Recall exceeds Precision (e.g. E1c: Recall 0.5051 vs. Precision 0.0026; E1d: Recall 0.3487 vs. Precision 0.0044). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. It also raises whether Otsu is well-suited to thresholding predictions, as it assumes a roughly bimodal intensity distribution. A fixed threshold or one derived from the validation PR curve may be worth comparing in future work.
@@ -446,7 +455,7 @@ Out of direct HAUNet ablations, removing DEM (E1b) produces weakest performance 
 \section{Conclusions}
 This project investigated DL pipeline for downscaling low-resolution, high-temporal-frequency GOES imagery into Landsat-resolution wildfire predictions, evaluating both direct and cascaded mapping across HAUNet and Autoencoder baseline. The work was conducted in the context of Artio's carbon-investment risk assessment use case.
 
-Across configurations, absolute performance remained modest (AUPRC and IoU generally below 0.1), showing the difficulty of an extreme resolution gap (2km to 30m), severe class imbalance in the fire target, and small training dataset (1,202 Landsat patches). All trained configurations exceeded the All-Zero and Prevalence-Rate baselines, confirming that the models learn genuine patterns.
+Across configurations, absolute performance remained modest (AUPRC and IoU generally below 0.02), showing the difficulty of an extreme resolution gap (2km to 30m), severe class imbalance in the fire target, and small training dataset (1,202 Landsat patches). All trained configurations exceeded the All-Zero and Prevalence-Rate baselines, confirming that the models learn genuine patterns.
 
 No architecture showed a uniform advantage over others. HAUNet consistently achieved higher AUPRC than the Autoencoder in both direct and cascaded mapping, while the Autoencoder generally achieved better overlap-based metrics (IoU, Precision, Boundary F1) in direct mapping. But in cascaded pipeline, HAUNet's Stage 2 outperformed the Autoencoder's across all metrics, though this comparison is likely due to each architecture's Stage 2 being trained on its own Stage 1's predictions. The benefit of cascading over direct mapping was similarly metric-dependent rather than uniform, with cascading generally improving overlap-based metrics for HAUNet at some cost to AUPRC, and showing a smaller, less consistent effect for the Autoencoder. Target dilation improved HAUNet's direct-mapping performance but not the Autoencoder's, suggesting the benefit of label tolerance is architecture-dependent. Feature ablations indicated that DEM contributes meaningfully to HAUNet's direct-mapping performance.
 
@@ -455,5 +464,23 @@ These findings suggest that, with the current data and resolution gap, architect
 Future work should explore the integration of temporal information to capture the dynamic evolution of wildfires and/or predict burn areas. Another could include integration of climate data, and/or predicting fire intensity as well. Additionally, further research could investigate the use of generative and transformer-based models to enhance downscaled outputs and improve the model's ability to generalise across different geographic regions and fire regimes. The project could be extended to experiment with different architectures at each stage of the cascaded pipeline, or explore multi-stage cascades with more than two stages to further reduce the resolution gap at each step. Increasing the training dataset, and conducting a cross-architecture ablation isolating Stage 2 performance from Stage 1 prediction quality, would help clarify questions raised above.
 
 \printbibliography
+
+% ==========================================
+%     DECLARATION OF AI & SOFTWARE TOOLS
+% ==========================================
+\section*{Declaration of Software \& Generative AI Tools}
+\addcontentsline{toc}{section}{Declaration of Software and Generative AI Tools}
+
+The content and critical analysis presented in this report were written by the student without generative AI.
+
+Generative AI models (Google Gemini 3.6 and Anthropic Claude Sonnet 5) were used as developer tools during software implementation. This usage was restricted to:
+
+\begin{itemize}
+    \item \textbf{Code Generation \& Modularisation:} Drafting code, modularising scripts, and creating visualisation tools.
+    \item \textbf{Debugging \& Cloud Integration:} Troubleshooting execution errors, optimisation, and assisting with using Google Cloud Services.
+    \item \textbf{Implementation Ideation:} Exploring architectural configurations and workflow design possibilities.
+\end{itemize}
+
+Generated codes were manually reviewed, modified, and integrated by the author. References detailing AI usage is in the project repository at \texttt{references.md}.
 
 \end{document}
