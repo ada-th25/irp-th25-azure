@@ -125,7 +125,7 @@ Existing literature is dominated by direct, single-model downscaling across the 
 
 To address these gaps, the objectives of this project are:
 \begin{enumerate}
-    \item Develop a domain-specific, multi-stage physical downscaling framework tailored to the extreme target sparsity and physical constraints of active wildfires.
+    \item Develop a domain-specific, multi-stage physical downscaling framework tailored to the extreme class imbalance and physical constraints of active wildfires.
     \item Compare the effectiveness of a Hybrid Attention U-Net (HAUNet) against a baseline convolutional autoencoder in preserving localised active fire signals and suppressing background reconstruction noise.
     \item Evaluate the performance and trade-offs of a multi-stage physical pipeline against direct downscaling, assessing whether cascaded approach improves overall active fire spatial accuracy.
 \end{enumerate}
@@ -406,6 +406,20 @@ The best model checkpoint for final evaluation was selected based on the highest
 The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}.
 
 \input{tables/evaluation_table.tex}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/autoencoder_predictions.png}
+    \caption{Autoencoder direct E3 (a) and cascaded E4.2b (b) prediction examples. From left to right: a) GOES TFI, undilated target, raw predictions, postprocessed predictions, difference. b)input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
+    \label{fig:autoencoder_predictions}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/haunet_predictions.png}
+    \caption{HAUNet direct E1d (a) and cascaded E2.2a (b) prediction examples. From left to right: a) GOES TFI, undilated target, dilated target, raw predictions, postprocessed predictions, difference. b)input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
+    \label{fig:haunet_predictions}
+\end{figure}
 
 \section{Discussions} \label{sec:discussion}
 

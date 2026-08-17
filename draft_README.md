@@ -2,21 +2,24 @@
 
 This repository contains the source code, data pipelines, and documentation for an Independent Research Project (IRP) focused on the high-resolution spatial downscaling of wildfire data down to 30m resolution.
 
-The core objective is to evaluate and compare two main downscaling pathways: **Cascaded Downscaling** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m) to analyse spatial accuracy trade-offs with Hybrid Attention U-Net (HAUNet).
+The core objective is to evaluate and compare two main downscaling pathways: **Cascaded Downscaling** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m) to analyse performance with Hybrid Attention U-Net (HAUNet) and autoencoder baseline.
 
 ---
 
 ## 📊 Main Results & Summary
 
-| Architecture | Pipeline | AUPRC | IOU | Boundary F1 | Pixel F1|
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Autoencoder** | Direct | *TBD* | *TBD* | *TBD* | *TBD* |
-| **Autoencoder** | Cascaded | *TBD* | *TBD* | *TBD* | *TBD* |
-| **HAUNet** | Direct | *TBD* | *TBD* | *TBD* | *TBD* |
-| **HAUNet** | Cascaded | *TBD* | *TBD* | *TBD* | *TBD* |
+Best-performing configuration per architecture/pipeline group (by AUPRC), evaluated on Otsu-thresholded post-processed predictions. See [`deliverables/tables/evaluation_table.tex`](deliverables/tables/evaluation_table.tex) for full results.
 
-* **Best Model Architecture:**
-* **Primary Conclusion:**
+| Architecture | Pipeline | AUPRC | IoU | Boundary F1 |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **Autoencoder** | Direct | 0.0120 | 0.0064 | 0.0050 |
+| **Autoencoder** | Cascaded | 0.0106 | 0.0065 | 0.0037 |
+| **HAUNet** | Direct | 0.0188 | 0.0044 | 0.0041 |
+| **HAUNet** | Cascaded | 0.0142 | 0.0072 | 0.0071 |
+
+* **Best Model Architecture:** No single architecture or pipeline is uniformly best: HAUNet achieves higher AUPRC in both direct and cascaded settings, while the Autoencoder generally achieves comparable or better spatial overlap (IoU, Pixel F1) in direct mapping. The cascaded HAUNet pipeline achieves the best overlap-based performance (IoU, Boundary F1) overall, but this comparison is confounded by each architecture's Stage 2 being trained on its own Stage 1 predictions (HAUNet's Stage 1 is itself substantially stronger). Model choice should therefore depend on whether ranking quality (AUPRC) or fixed-threshold spatial accuracy matters more for the downstream use case.
+
+* **Primary Conclusion:** All trained configurations clearly outperform naive All-Zero and Prevalence-Rate baselines, confirming the models learn genuine fire-related signal. However, absolute performance remains modest across the board (AUPRC and IoU generally < 0.1), reflecting the difficulty of the extreme 2km $\rightarrow$ 30m resolution gap, severe class imbalance in the fire target, and a comparatively small training dataset. Cascading through an intermediate VIIRS-resolution stage improves overlap-based metrics for HAUNet at some cost to AUPRC, with a smaller and less consistent effect for the Autoencoder. These results should be read as a proof-of-concept demonstrating a working pipeline rather than a deployment-ready wildfire detection system.
 
 ## Repository Structure
 
