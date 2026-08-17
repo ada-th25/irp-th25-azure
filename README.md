@@ -1,13 +1,94 @@
-# IRP Repository
+# 🔥 Wildfire Super-Resolution: Direct and Cascaded Spatial Downscaling
 
-Please familiarise yourself with and follow [GitHub repository instructions](https://ese-msc.github.io/irp/repos/).
+This repository contains the source code, data pipelines, and documentation for an Independent Research Project (IRP) focused on the high-resolution spatial downscaling of wildfire data down to 30m resolution.
 
-Deleting or modifying the pre-existing GitHub Actions workflows or the directory structure in this repository is strictly prohibited. Your IRP files should "live" alongside pre-existing files.
+The core objective is to evaluate and compare two main downscaling pathways: **Cascaded Downscaling** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m) to analyse performance with Hybrid Attention U-Net (HAUNet) and autoencoder baseline.
 
-## Inactivity Warnings
-
-Scheduled workflows will periodically check whether `logbook.md` has been updated recently on `main` as well as whether **regular commits were made to the repository (to any branch)**. If an inactivity is detected, a warning will be automatically raised as an issue in this repository. **You must not close those issues.**
+> **⚠️ Academic Integrity Note:**
+> This project is entirely Tsuyu Huang's (irp-th25) individual work. 
+>In the repository's commit history, the username appears in two different formats:
+>1. **Clickable Profile Name**: Commits made from personal setup (VSCode) where Tsuyu's GitHub account is linked.
+>2. **Unclickable Text Name**: Commits pushed directly from a cloud-hosted Google Cloud Platform Instance / JupyterLab environment.
+>Because the cloud environment used a default system email address instead of registered GitHub email, GitHub displays the author as unclickable plain text. Both sets of commits were authored exclusively by Tsuyu Huang across these two environments. No external collaborators were used. For any AI usage reference, check [references.md](references.md).
 
 ---
 
-**Tip:** After you have familiarised yourself with this repository, you may delete the content of this file and replace it with your project-specific information.
+## 📊 Main Results & Summary
+
+Best-performing configuration per architecture/pipeline group (by AUPRC), evaluated on Otsu-thresholded post-processed predictions. See [`deliverables/tables/evaluation_table.tex`](deliverables/tables/evaluation_table.tex) for full results.
+
+| Architecture | Pipeline | AUPRC | IoU | Boundary F1 |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **Autoencoder** | Direct | 0.0120 | 0.0064 | 0.0050 |
+| **Autoencoder** | Cascaded | 0.0106 | 0.0065 | 0.0037 |
+| **HAUNet** | Direct | 0.0188 | 0.0044 | 0.0041 |
+| **HAUNet** | Cascaded | 0.0142 | 0.0072 | 0.0071 |
+
+* **Best Model Architecture:** No single architecture or pipeline is uniformly best: HAUNet achieves higher AUPRC in both direct and cascaded settings, while the Autoencoder generally achieves comparable or better spatial overlap (IoU, Pixel F1) in direct mapping. The cascaded HAUNet pipeline achieves the best overlap-based performance (IoU, Boundary F1) overall, but this comparison is confounded by each architecture's Stage 2 being trained on its own Stage 1 predictions (HAUNet's Stage 1 is itself substantially stronger). Model choice should therefore depend on whether ranking quality (AUPRC) or fixed-threshold spatial accuracy matters more for the downstream use case.
+
+* **Primary Conclusion:** All trained configurations clearly outperform naive All-Zero and Prevalence-Rate baselines, confirming the models learn genuine fire-related signal. However, absolute performance remains modest across the board (AUPRC and IoU generally < 0.1), reflecting the difficulty of the extreme 2km $\rightarrow$ 30m resolution gap, severe class imbalance in the fire target, and a comparatively small training dataset. Cascading through an intermediate VIIRS-resolution stage improves overlap-based metrics for HAUNet at some cost to AUPRC, with a smaller and less consistent effect for the Autoencoder. These results should be read as a proof-of-concept demonstrating a working pipeline rather than a deployment-ready wildfire detection system.
+
+## Repository Structure
+
+```text
+├── deliverables/               # Project plan and report
+│   ├── project_plan.pdf        # Initial project scope and timeline
+│   └── final_report.pdf        # Completed IRP final report
+├── experiments/                # Model training configurations and hyperparameter settings (YAML)
+├── requirements.txt
+├── logbook/                    # Project tracking and meeting records
+├── logs/                       # Summary of experiment evaluation results
+├── notebooks/                  # Project notes and exploratory ipynb notebooks
+├── src/                        # Main project codebase and source modules
+│   ├── data/                   # Data generation, preprocessing, loading and pipeline scripts
+│   ├── evaluate.py             # Evaluation script
+│   ├── losses.py               # Loss script
+│   ├── metrics.py              # Metrics script
+│   ├── train.py                # Train script
+│   ├── utils/                  # Utilities
+│   └── models/                 # Model architectures
+│       ├── autoencoder.py      # Autoencoder
+│       └── haunet.py           # Hybrid Attention U-Net (HAUNet)
+├── tests/                      # Test scripts
+└── README.md
+```
+
+## Quickstart
+
+### Environment Setup
+
+```bash
+# Clone the repository
+git clone [https://github.com/ese-ada-lovelace-2025/irp-th25.git](https://github.com/ese-ada-lovelace-2025/irp-th25.git)
+cd irp-th25
+
+# Set up virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Running Experiments
+
+See [`experiments/`](experiments/) to see full list of experiments, the configurations and hyperparameters for this project.
+
+```bash
+# Example:
+
+# Train Direct HAUNet Model (1km -> 30m)
+python src/train.py --config experiments/e1_haunet_direct.YAML 
+
+# Train Cascaded HAUNet Model Stage 1 (1km -> 375m)
+python src/train.py --config experiments/e2_haunet_cascaded_stage1.YAML
+
+# Train Cascaded HAUNet Model Stage 2 (375m -> 30m)
+python src/train.py --config experiments/e2_haunet_cascaded_stage2.YAML
+
+# Evaluate Model
+python src/evaluate.py \
+        --config experiments/e1_haunet_direct.YAML \
+        --checkpoint checkpoints/e1_haunet_direct/best.pt \
+        --split test
+```

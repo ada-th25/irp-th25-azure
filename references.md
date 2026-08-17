@@ -377,3 +377,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Date Used:** 13/08/2026
     * **Scope:** Write docstrings in scripts for production-ready code: `src/train.py`, `src/evaluate.py`, `src/metrics.py`, `src/losses.py`, `src/data/generate_stage1_predictions.py`, `src/data/split_data.py`, `src/data/wildfire_dataset.py`
     * **Prompt:** (pasting existing scripts) "Add docstrings to make this production-ready."
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 17/08/2026
+    * **Scope:** Write code in `notebooks/explore_results_summary.ipynb` that plots precision-recall curve for the best models.
+    * **Prompt:** (pasting evaluation script) "Write code that plots the PR curve for the best models given the rw outputs are saved under logs."
+    * **Human Modification:** Edit the `preds_dir` to match the correct names.
