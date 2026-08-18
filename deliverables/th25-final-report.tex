@@ -150,22 +150,6 @@ In addition to the native $3.9\ \mu\text{m}$ (Ch. 7) and $11.2\ \mu\text{m}$ (Ch
 
 Explicitly providing the difference reduces the burden on early network layers to discover a known, physically meaningful relationship, aiming to save model capacity and improving convergence.
 
-The dataset is split into training/validation/testing (80/10/10). This split utilises stratified random sampling across four quantile bins based on the active fire pixel count per patch for balanced representation of fire sizes. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
-
-\begin{equation}\label{eq:weighted_sampling}
-    w_i = \max(n_i, 1)
-\end{equation}
-
-where $n_i$ is extracted from the patch metadata manifests.
-
-Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation parameters precomputed exclusively from the training split. DEM covariates were normalised by dividing by $1000$ (converting to km). The landcover data is also one-hot encoded into 10 channels, each representing a landcover class.
-
-For the targets, the continuous VIIRS FRP values are binarised, and Landsat targets are already binarised. Depending on the experimental configuration, these are transformed using spatial dilation.
-
-Spatial dilation was applied using a $3 \times 3$ max-pooling kernel for the VIIRS branch and a $7 \times 7$ for the Landsat branch. Landsat targets are much sparser than the VIIRS targets, so a larger dilation kernel was used to provide a comparably denser training signal.
-
-The Landsat branch has a limited number of samples (1,202 total), and given the extreme class imbalance in fire pixel prevalence, training samples were augmented via independent horizontal and vertical flips (each applied with probability 0.5), applied to the input and target. This increases the effective diversity of the training set. No augmentation was applied to validation or test splits.
-
 \begin{table}[htbp]
 \centering
 \small
@@ -297,6 +281,27 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 \end{equation}
 where $\epsilon$ is a smoothing term preventing division by zero.
 
+The hyperparameters used are: $\alpha = 0.85, \gamma = 1.5, w_f = 1.0, w_d = 1.0$, which was assigned for final model training after tuning with subset of training samples. A higher $\alpha$ was assigned to penalise false negatives more heavily given the extreme class imbalance.
+
+\subsection{Training Setup}
+The dataset is split into training/validation/testing (80/10/10). This split utilises stratified random sampling across four quantile bins based on the active fire pixel count per patch for balanced representation of fire sizes. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
+
+\begin{equation}\label{eq:weighted_sampling}
+    w_i = \max(n_i, 1)
+\end{equation}
+
+where $n_i$ is extracted from the patch metadata manifests.
+
+Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation parameters precomputed exclusively from the training split. DEM covariates were normalised by dividing by $1000$ (converting to km). The landcover data is also one-hot encoded into 10 channels, each representing a landcover class.
+
+For the targets, the continuous VIIRS FRP values are binarised, and Landsat targets are already binarised. Depending on the experimental configuration, these are transformed using spatial dilation.
+
+Spatial dilation was applied using a $3 \times 3$ max-pooling kernel for the VIIRS branch and a $7 \times 7$ for the Landsat branch. Landsat targets are much sparser than the VIIRS targets, so a larger dilation kernel was used to provide a comparably denser training signal.
+
+The Landsat branch has a limited number of samples (1,202 total), and given the extreme class imbalance in fire pixel prevalence, training samples were augmented via independent horizontal and vertical flips (each applied with probability 0.5), applied to the input and target. This increases the effective diversity of the training set. No augmentation was applied to validation or test splits.
+
+All models were trained for $20$ epochs using the Adam optimiser with an initial learning rate of $\eta = 1 \times 10^{-4}$, decaying to a minimum learning rate of $1 \times 10^{-6}$, and Weight decay was set to $5 \times 10^{-4}$ for HAUNet and $1 \times 10^{-4}$ for the Autoencoder. Gradients were clipped at a maximum norm of $2.0$ to ensure numerical stability during optimisation. Batch size of 8 were used to accommodate high-resolution multi-channel tensors within GPU VRAM constraints without downsampling spatial patch dimensions.
+
 \subsection{Computational Environment}
 Model development and training were conducted on a GCP Vertex AI Workbench instance equipped with an NVIDIA L4 GPU, 23.7 GB VRAM, 32 GB RAM, 8 vCPUs. Data generation and preprocessing were run as separate CPU-only jobs querying GCS directly.
 
@@ -394,7 +399,7 @@ The best model checkpoint for final evaluation was selected based on the highest
 
 \section{Results}\label{sec:results}
 
-The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. Example predictions for the best Autoencoer and HAUNet configuration are shown in Figure \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} respectively. Figure \ref{fig:pr_curves} shows the Precision-Recall (PR) curves across representative models compared to the random baseline.
+The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. All metrics in this study are aggregated (per-sample, then averaged across the test set). Example predictions for the best Autoencoer and HAUNet configuration are shown in Figure \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} respectively. Figure \ref{fig:pr_curves} shows the Precision-Recall (PR) curves across representative models compared to the random baseline.
 
 \input{tables/evaluation_table.tex}
 
