@@ -1,16 +1,15 @@
 \begin{table}[htbp]
 \centering
 \footnotesize
-\caption{Best-performing configuration (by AUPRC) within each architecture/pipeline group, for direct cross-group comparison. Stage 1 and Stage 2 of the cascaded HAUNet pipeline predict different targets (VIIRS and Landsat respectively) and are therefore listed as separate rows rather than compared directly.}
+\caption{Best-performing configuration (by AUPRC) within each architecture/pipeline group, for direct cross-group comparison. AUPRC values shown with 95\% bootstrap confidence intervals.}
 \label{tab:best_overall}
 \begin{tabularx}{\textwidth}{lYYYYYY}
 \hline
 \textbf{Group} & \textbf{AUPRC} & \textbf{IoU} & \textbf{Precision} & \textbf{Recall} & \textbf{Boundary F1} \\ \hline
-Direct - HAUNet (E1d: Dilated Target) & 0.0188 & 0.0044 & 0.0044 & 0.3490 & 0.0041 \\
-Cascaded Stage 1 - HAUNet (E2.1a: Stage 1 (no dilation)) & \textbf{0.1458} & \textbf{0.0651} & \textbf{0.0721} & 0.3582 & \textbf{0.0956} \\
-Cascaded Stage 2 - HAUNet (E2.2a: Stage 2 (E2.1a input, dilated)) & 0.0142 & 0.0072 & 0.0074 & 0.2065 & 0.0071 \\
-Direct - Autoencoder (E3: Full, No Target Dilation) & 0.0120 & 0.0064 & 0.0077 & 0.2592 & 0.0050 \\
-Cascaded - Autoencoder (E4.1: Stage 1 (no dilation)) & 0.0944 & 0.0327 & 0.0367 & \textbf{0.3966} & 0.0500 \\
+Direct - HAUNet (E1d: Dilated Target) & \textbf{0.0188 [0.0084, 0.0336]} & 0.0044 & 0.0044 & 0.3490 & 0.0041 \\
+Cascaded - HAUNet (E2.2a: Stage 2 (E2.1a input, dilated)) & 0.0142 [0.0071, 0.0237] & \textbf{0.0072} & 0.0074 & 0.2065 & \textbf{0.0071} \\
+Direct - Autoencoder (E3: Full, No Target Dilation) & 0.0120 [0.0044, 0.0243] & 0.0064 & \textbf{0.0077} & 0.2592 & 0.0050 \\
+Cascaded - Autoencoder (E4.2b: Stage 2 (dilated targets)) & 0.0106 [0.0044, 0.0184] & 0.0056 & 0.0058 & \textbf{0.4565} & 0.0040 \\
 \hline
 \end{tabularx}
 \end{table}
