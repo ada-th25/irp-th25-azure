@@ -87,6 +87,18 @@ This file contains references and AI disclosures specific to the codebase in thi
 
 # AI Usage
 
+### Declaration of Generative AI Tools
+
+Generative AI models ([Google Gemini 3.6](https://gemini.google.com/app), [Anthropic Claude Sonnet 5](https://claude.ai/new)) were used as developer tools during software implementation. This usage was restricted to:
+
+- **Code Generation & Modularisation:** Drafting code, modularising scripts, and creating visualisation tools.
+- **Debugging & Cloud Integration:** Troubleshooting execution errors, optimisation, and assisting with using Google Cloud Services.
+- **Implementation Ideation:** Exploring architectural configurations and workflow design possibilities.
+
+Generated codes were manually reviewed, modified, and integrated by the author.
+
+---
+
 * **Tool:** Anthropic Claude (Sonnet 4.6)
     * **Date Used:** 10/06/2026
     * **Scope:** Generated the initial test pipeline code in data processing pipeline in `src/data/dataset.py`. Also generated code to be used for testing/visualising the initial test pipeline in `notebooks/exploratory-notebook.ipynb`. NOTE: This is not used in the final pipeline. This is purely for test/exploratory purposes only.
