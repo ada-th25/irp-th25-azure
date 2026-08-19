@@ -383,3 +383,9 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Scope:** Write code in `notebooks/explore_results_summary.ipynb` that plots precision-recall curve for the best models.
     * **Prompt:** (pasting evaluation script) "Write code that plots the PR curve for the best models given the rw outputs are saved under logs."
     * **Human Modification:** Edit the `preds_dir` to match the correct names.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 19/08/2026
+    * **Scope:** Generate code (written in `notebooks/explore_results_summary.ipynb`) that calculates the inflation ratio (predicted area / true area), normalised AUPRC (AUPRC / prevalence-baseline-AUPRC), and confidence intervals (by 1000x recompute).
+    * **Prompt:** (pasting existing results and supervisor's feedback on adding normalised AUPRC, CI, and inflation ratio) "Generate code that makes relevant calculations for the following email"
+    * **Human Modification:** Edit directory path names.

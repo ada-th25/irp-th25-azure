@@ -179,3 +179,15 @@
     - Add compute resources into report.
     - Continue training and obtain evaluation results for some experiments.
     - Write down & send document of progress to Anna (second supervisor).
+
+### Email with Main Supervisor (18 Aug 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Received feedback on current report draft.
+- **Feedback:**
+    - Bring Artio/insurance use-case more clearly. e.g. assymetry between under- and over-estimation.
+    - Add normalised AUPRC and confidence intervals if space left in report.
+    - Overall, try focusing on strengthening the results section.
+- **Work Plan Before Next Meeting:**
+    - Try implementing the confidence interval/normalised AUPRC implementation and see if it can be added to report.
+    - Look at feedback comments on the report and make relevant changes.

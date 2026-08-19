@@ -9,6 +9,7 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 >In the repository's commit history, the username appears in two different formats:
 >1. **Clickable Profile Name**: Commits made from personal setup (VSCode) where Tsuyu's GitHub account is linked.
 >2. **Unclickable Text Name**: Commits pushed directly from a cloud-hosted Google Cloud Platform Instance / JupyterLab environment.
+>
 >Because the cloud environment used a default system email address instead of registered GitHub email, GitHub displays the author as unclickable plain text. Both sets of commits were authored exclusively by Tsuyu Huang across these two environments. No external collaborators were used. For any AI usage reference, check [references.md](references.md).
 
 ---
