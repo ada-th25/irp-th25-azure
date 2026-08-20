@@ -3,21 +3,29 @@ Plot GOES bands, covariates, true target, predicted fire probability,
 and difference map for a handful of val/train/test samples, side by side.
 
 Usage:
-    # Basic prediction plot
+    # Basic prediction plot using direct GCS path
     python -m src.utils.plot_predictions \
-        --config experiments/e2_haunet_cascaded_stage1_test.yaml \
-        --checkpoint checkpoints_test/e2_haunet_viirs_cascaded_stage1_test/epoch_010.pt \
+        --config experiments/e2_haunet_cascaded_stage1.YAML \
+        --checkpoint gs://wildfire-irp-data-th25/processed_dataset_gcp/checkpoints/e2_haunet_cascaded_stage1_focal_dice/best_val_auprc.pt \
+        --n-samples 4 \
+        --out predictions.png
+
+    # Basic prediction plot using relative checkpoint filename
+    python -m src.utils.plot_predictions \
+        --config experiments/e2_haunet_cascaded_stage1.YAML \
+        --checkpoint best_val_auprc.pt \
         --n-samples 4 \
         --out predictions.png
 
     # With post-processing overlay and seed
     python -m src.utils.plot_predictions \
-        --config experiments/e2_haunet_cascaded_stage1_test.yaml \
-        --checkpoint checkpoints_test/e2_haunet_viirs_cascaded_stage1_test/epoch_010.pt \
+        --config experiments/e2_haunet_cascaded_stage1.YAML \
+        --checkpoint best_val_auprc.pt \
         --show-postprocessed \
         --pp-method percentile \
         --pp-percentile 99.5 \
-        --seed 42
+        --seed 42 \
+        --out predictions_pp.png
 """
 import argparse
 import random
@@ -73,6 +81,38 @@ def parse_args():
     p.add_argument("--pp-fixed-threshold", type=float, default=0.5)
     p.add_argument("--pp-min-component-size", type=int, default=4)
     return p.parse_args()
+
+
+def resolve_checkpoint_path(checkpoint_arg: str, bucket_name: str, gcs_ckpt_prefix: str) -> str:
+    """Resolves local or GCS checkpoint paths."""
+    local_path = Path(checkpoint_arg)
+    if local_path.exists():
+        return str(local_path)
+
+    if checkpoint_arg.startswith("gs://"):
+        gcs_path = checkpoint_arg.replace("gs://", "")
+        b_name, key = gcs_path.split("/", 1)
+    else:
+        b_name = bucket_name
+        
+        # Clean prefix and checkpoint path to avoid duplicate folder names
+        prefix_clean = gcs_ckpt_prefix.rstrip("/")
+        ckpt_clean = checkpoint_arg.lstrip("/")
+        
+        # If checkpoint_arg starts with the trailing part of gcs_ckpt_prefix, prevent doubling
+        prefix_parts = prefix_clean.split("/")
+        if prefix_parts and ckpt_clean.startswith(f"{prefix_parts[-1]}/"):
+            key = f"{'/'.join(prefix_parts[:-1])}/{ckpt_clean}".lstrip("/")
+        else:
+            key = f"{prefix_clean}/{ckpt_clean}".lstrip("/")
+
+    from google.cloud import storage
+    dest = Path("cache") / Path(key).name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        print(f"Downloading checkpoint from gs://{b_name}/{key} -> {dest}")
+        storage.Client().bucket(b_name).blob(key).download_to_filename(str(dest))
+    return str(dest)
 
 
 def build_model(cfg: dict, config_path: str) -> torch.nn.Module:
