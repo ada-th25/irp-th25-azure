@@ -75,7 +75,7 @@ pip install -r requirements.txt
 
 ## Data Pipeline & Reproducibility
 
-> **Note:** Dataset generation and preprocessing require access to the project's Google Cloud Storage bucket (`gs://wildfire-irp-data-th25/processed_dataset_gcp/`). Without GCS credentials, steps 1–4 below cannot be run. However, trained model checkpoints and evaluation logs (see [`logs/`](logs/)) are included in this repository, so evaluation and results reproduction (steps 5–6) can be run independently of raw data access.
+> **Note:** Dataset generation and preprocessing require access to the project's Google Cloud Storage bucket (`gs://wildfire-irp-data-th25/processed_dataset_gcp/`). Without GCS credentials, steps 1–4 below cannot be run.
 
 Full instructions for reproducing the dataset from raw sources (GOES/VIIRS/Landsat/covariates), including manifest validation, train/val/test splitting, and normalisation statistics, are documented in [`src/README.md`](src/README.md). This covers the required pipeline order:
 
