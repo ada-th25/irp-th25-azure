@@ -16,18 +16,20 @@ The core objective is to evaluate and compare two main downscaling pathways: **C
 
 ## 📊 Main Results & Summary
 
-Best-performing configuration per architecture/pipeline group (by AUPRC), evaluated on Otsu-thresholded post-processed predictions. See [`deliverables/tables/evaluation_table.tex`](deliverables/tables/evaluation_table.tex) for full results.
+Best-performing configuration per architecture/pipeline group (by AUPRC), evaluated on Otsu-thresholded post-processed predictions at final Landsat (30m) resolution. See [`deliverables/tables/evaluation_table.tex`](deliverables/tables/evaluation_table.tex) for full results, and [`deliverables/tables/evaluation_summary_table.tex`](deliverables/tables/evaluation_summary_table.tex) for bootstrap confidence intervals.
 
 | Architecture | Pipeline | AUPRC | IoU | Boundary F1 |
 | :--- | :--- | :---: | :---: | :---: |
 | **Autoencoder** | Direct | 0.0120 | 0.0064 | 0.0050 |
-| **Autoencoder** | Cascaded | 0.0106 | 0.0065 | 0.0037 |
+| **Autoencoder** | Cascaded | 0.0106 | 0.0056 | 0.0040 |
 | **HAUNet** | Direct | 0.0188 | 0.0044 | 0.0041 |
 | **HAUNet** | Cascaded | 0.0142 | 0.0072 | 0.0071 |
 
-* **Best Model Architecture:** No single architecture or pipeline is uniformly best: HAUNet achieves higher AUPRC in both direct and cascaded settings, while the Autoencoder generally achieves comparable or better spatial overlap (IoU, Pixel F1) in direct mapping. The cascaded HAUNet pipeline achieves the best overlap-based performance (IoU, Boundary F1) overall, but this comparison is confounded by each architecture's Stage 2 being trained on its own Stage 1 predictions (HAUNet's Stage 1 is itself substantially stronger). Model choice should therefore depend on whether ranking quality (AUPRC) or fixed-threshold spatial accuracy matters more for the downstream use case.
+*(Autoencoder Cascaded and HAUNet Direct use dilated-target configurations, consistent with the best-performing setup identified per architecture; see the report's Methods section for full ablation details.)*
 
-* **Primary Conclusion:** All trained configurations clearly outperform naive All-Zero and Prevalence-Rate baselines, confirming the models learn genuine fire-related signal. However, absolute performance remains modest across the board (AUPRC and IoU generally < 0.1), reflecting the difficulty of the extreme 2km $\rightarrow$ 30m resolution gap, severe class imbalance in the fire target, and a comparatively small training dataset. Cascading through an intermediate VIIRS-resolution stage improves overlap-based metrics for HAUNet at some cost to AUPRC, with a smaller and less consistent effect for the Autoencoder. These results should be read as a proof-of-concept demonstrating a working pipeline rather than a deployment-ready wildfire detection system.
+* **Best Model Architecture:** No single architecture or pipeline is uniformly best. In the **direct** pipeline, HAUNet leads on AUPRC while the Autoencoder achieves better fixed-threshold spatial overlap (IoU, Precision). In the **cascaded** pipeline, HAUNet leads on every reported metric. Paired bootstrap tests (1,000 resamples, matched by patch) support consistent AUPRC advantage for HAUNet: it exceeds the Autoencoder in 84.2% of resamples in the direct pipeline (mean diff +0.0069, 95% CI [-0.0057, 0.0222]) and 87.1% in the cascaded pipeline (mean diff +0.0036, 95% CI [-0.0028, 0.0110]). Neither reaches conventional statistical significance given the limited test-set size (121 patches), but the consistency across both pipelines suggests architectural advantage. Model choice should therefore depend on whether ranking quality (AUPRC) or fixed-threshold spatial accuracy matters more.
+
+* **Primary Conclusion:** All trained configurations clearly outperform naive All-Zero and Prevalence-Rate baselines, confirming the models learn genuine fire-related signal. The best AUPRC is roughly 30 times the theoretical random baseline. However, absolute performance remains modest across the board (AUPRC and IoU generally < 0.02), reflecting the difficulty of the extreme 2km to 30m resolution gap, severe class imbalance in the fire target, and small training dataset (1,202 total Landsat patches). Cascading through an intermediate VIIRS-resolution stage improves overlap-based metrics for HAUNet at some cost to AUPRC, with a smaller and less consistent effect for the Autoencoder. Area inflation analysis (predicted vs. true fire area) shows current models are better suited to coarse regional risk flagging than precise active fire prediction. These results should be read as a proof-of-concept demonstrating a working pipeline rather than a deployment-ready wildfire detection system.
 
 ## Repository Structure
 
@@ -70,6 +72,21 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+## Data Pipeline & Reproducibility
+
+> **Note:** Dataset generation and preprocessing require access to the project's Google Cloud Storage bucket (`gs://wildfire-irp-data-th25/processed_dataset_gcp/`). Without GCS credentials, steps 1–4 below cannot be run. However, trained model checkpoints and evaluation logs (see [`logs/`](logs/)) are included in this repository, so evaluation and results reproduction (steps 5–6) can be run independently of raw data access.
+
+Full instructions for reproducing the dataset from raw sources (GOES/VIIRS/Landsat/covariates), including manifest validation, train/val/test splitting, and normalisation statistics, are documented in [`src/README.md`](src/README.md). This covers the required pipeline order:
+
+1. Build dataset (`generate_dataset.py`)
+2. Enrich manifests with validity flags (`enrich_manifests.py`)
+3. Split data (`split_data.py`)
+4. Compute normalisation statistics (`compute_goes_stats.py`, `compute_dem_stats.py`)
+5. Train model (`train.py`)
+6. Evaluate (`evaluate.py`)
+
+The Quickstart below assumes data has already been generated per the steps above; see `src/README.md` for full command details and required GCS bucket access.
 
 ## Running Experiments
 
