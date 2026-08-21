@@ -4,13 +4,15 @@ This repository contains the source code, data pipelines, and documentation for 
 
 The core objective is to evaluate and compare two main downscaling pathways: **Cascaded Downscaling** (1km $\rightarrow$ 375m $\rightarrow$ 30m) and **Direct Downscaling** (1km $\rightarrow$ 30m) to analyse performance with Hybrid Attention U-Net (HAUNet) and autoencoder baseline.
 
+See [`deliverables/th25-final-report.pdf`](deliverables/th25-final-report.pdf) for project report.
+
 > **⚠️ Academic Integrity Note:**
 > This project is entirely Tsuyu Huang's (irp-th25) individual work. 
 >In the repository's commit history, the username appears in two different formats:
 >1. **Clickable Profile Name**: Commits made from personal setup (VSCode) where Tsuyu's GitHub account is linked.
 >2. **Unclickable Text Name**: Commits pushed directly from a cloud-hosted Google Cloud Platform Instance / JupyterLab environment.
 >
->Because the cloud environment used a default system email address instead of registered GitHub email, GitHub displays the author as unclickable plain text. Both sets of commits were authored exclusively by Tsuyu Huang across these two environments. No external collaborators were used. For any AI usage reference, check [references.md](references.md).
+>Because the cloud environment used a default system email address instead of registered GitHub email, GitHub displays the author as unclickable plain text. Both sets of commits were authored exclusively by Tsuyu Huang across these two environments. No external collaborators were used. For any AI usage reference & declaration, check [references.md](references.md).
 
 ---
 
@@ -35,8 +37,8 @@ Best-performing configuration per architecture/pipeline group (by AUPRC), evalua
 
 ```text
 ├── deliverables/               # Project plan and report
-│   ├── project_plan.pdf        # Initial project scope and timeline
-│   └── final_report.pdf        # Completed IRP final report
+│   ├── th25-project-plan.pdf   # Initial project scope and timeline
+│   └── th25-final-report.pdf   # Completed IRP final report
 ├── experiments/                # Model training configurations and hyperparameter settings (YAML)
 ├── requirements.txt
 ├── logbook/                    # Project tracking and meeting records
@@ -75,7 +77,7 @@ pip install -r requirements.txt
 
 ## Data Pipeline & Reproducibility
 
-> **Note:** Dataset generation and preprocessing require access to the project's Google Cloud Storage bucket (`gs://wildfire-irp-data-th25/processed_dataset_gcp/`). Without GCS credentials, steps 1–4 below cannot be run.
+> **Note:** Dataset generation and preprocessing require access to a Google Cloud Storage bucket (e.g. `gs://wildfire-irp-data-th25/processed_dataset_gcp/`). Without GCS credentials, steps 1–4 below cannot be run.
 
 Full instructions for reproducing the dataset from raw sources (GOES/VIIRS/Landsat/covariates), including manifest validation, train/val/test splitting, and normalisation statistics, are documented in [`src/README.md`](src/README.md). This covers the required pipeline order:
 
