@@ -228,7 +228,7 @@ Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) 
 \end{itemize}
 
 \subsubsection{Full-Resolution Covariate Pyramid Branch}
-The original \cite{wangHybridAttentionBasedUShaped2023} HAUNet applies full spatial attention in S\_CEM imposes an $O((HW)^2)$ memory footprint that causes out-of-memory errors on full-resolution inputs. Hence the inputs ($256 \times 256$) are downsampled by factor $D=4$ (i.e. $256/4 = 64$) before passing to the model. 
+The original \cite{wangHybridAttentionBasedUShaped2023} HAUNet applies full spatial attention in S\_CEM imposes an $O((HW)^2)$ memory footprint that causes out-of-memory errors on full-resolution inputs. Hence the inputs ($256 \times 256$) are downsampled by factor $D=4$ (i.e. $256/4 = 64$) before passing to the model (upsampled input GOES unaffected). 
 
 The parallel Covariate Pyramid Encoder was introduced as modification to the original HAUNet because downsampling input covariates discards the high-resolution detail at 30m scale. It processes covariates at full-resolution in a separate branch, then progressively fusing into the main decoder path. This branch uses Windowed Spatial-Channel Attention Blocks (Windowed-S\_CEM) (\cite{liuSwinTransformerHierarchical2021}) for computational efficiency.
 
@@ -303,7 +303,7 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 \end{equation}
 where $\epsilon$ is a smoothing term preventing division by zero.
 
-The hyperparameters used are: $\alpha = 0.85, \gamma = 1.5, w_f = 1.0, w_d = 1.0$, which was assigned for final model training after tuning with subset of training samples. A higher $\alpha$ was assigned to penalise false negatives more heavily given the extreme class imbalance.
+The hyperparameters used are: $\alpha = 0.85, \gamma = 1.5, w_f = 1.0, w_d = 1.0$, which was assigned for final model training after tuning with subset of training samples (~$1,000$). A higher $\alpha$ was assigned to penalise false negatives more heavily given the extreme class imbalance.
 
 \subsection{Training Setup}
 The dataset is split into training/validation/testing (80/10/10). This split uses stratified random sampling across four quantile bins based on the active pixel count for balanced representation. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
@@ -312,9 +312,9 @@ The dataset is split into training/validation/testing (80/10/10). This split use
     w_i = \max(n_i, 1)
 \end{equation}
 
-where $n_i$ is extracted from the patch metadata manifests.
+where $n_i$ is extracted from the patch metadata manifests. Note: this means training gradients are dominated by larger fires, and metrics are weighted towards performance on larger fires. For Artio's use case this is not necessarily a limitation, as larger fires typically represent the greater share of insured exposure. However reported metrics should not be read as uniformly representative of performance on small fires.
 
-Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation precomputed exclusively from the training split. DEM covariates were converted to km. The landcover data is also one-hot encoded into 10 channels, each representing a landcover class.
+Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation precomputed exclusively from training split. DEM covariates were converted to km. The landcover data is also one-hot encoded into 10 channels, each representing a landcover class.
 
 For the targets, the continuous VIIRS FRP values are binarised, and Landsat targets are already binarised. Depending on the experimental configuration, these are transformed using spatial dilation.
 
@@ -367,7 +367,7 @@ E4  & Autoencoder & Cascaded       & Full, dilated and undilated target         
 
 \subsection{Evaluation Metrics}
 
-For Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \times 256$) with the target ($20 \times 20$), an adaptive spatial max-pooling was applied to the output logits before calculating loss and metrics. All reported quantitative metrics including IoU, Boundary F1, AUPRC, and Centroid Distance reflect performance evaluated on the coarse $20 \times 20$ target.
+For Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \times 256$) with the target ($20 \times 20$), an adaptive spatial max-pooling was applied to the output logits before calculating loss and metrics. All reported quantitative metrics reflect performance evaluated on the coarse $20 \times 20$ target.
 
 \begin{itemize}
     \item \textbf{AUPRC (Area Under Precision-Recall Curve):} Measures the performance of the model across different thresholds, making it suitable for imbalanced datasets (\cite{davisRelationshipPrecisionRecallROC2006}):
@@ -417,7 +417,7 @@ $2.$ is the theoretically expected value of AUPRC under a classifier with no dis
 
 While target dilation were used for the training target to mitigate class imbalance during optimisation, all evaluation metrics were computed against the original, undilated binary target masks. This ensures reported performance reflects the model's ability to predict at native target resolution.
 
-The best model checkpoint for final evaluation was selected based on the highest validation AUPRC. AUPRC evaluates across range of classification thresholds, making it threshold-independent and less sensitive to the extreme class imbalance.
+The best model checkpoint during fine tuning and selection for final evaluation and was selected based on the highest validation AUPRC. AUPRC evaluates across range of classification thresholds, making it threshold-independent and less sensitive to the extreme class imbalance.
 
 \section{Results}\label{sec:results}
 
@@ -451,23 +451,23 @@ The evaluation results for the direct and cascaded pipelines are summarised in T
 \section{Discussions} \label{sec:discussion}
 
 \subsection{Overall Performance}
-Across configurations, absolute performance is generally low (most < $0.02$ AUPRC and IOU). But all exceed the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background (relative to prevalence, best direct configuration (E1d) achieves an AUPRC of $0.0188$, roughly 30 times this baseline, the best cascaded configuration (E2.2a) roughly 23 times, and the Autoencoders (E3, E4.2b) roughly 20 and 17 times respectively).
+Across configurations, absolute performance is generally low (most < $0.02$ AUPRC and IOU). But all exceed the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background (relative to prevalence, best direct configuration (E1d) achieves an AUPRC of $0.0188$, roughly $30\times$ this baseline, the best cascaded configuration (E2.2a) roughly $23\times$, and the Autoencoders (E3, E4.2b) roughly $20\times$ and $17\times$ times respectively).
 
-Direct numerical comparison with similar work in \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution (2km $\to$ 375m single-stage vs. this study's 2km $\to$ 30m direct and cascaded mapping), prediction target (continuous BT regression vs. binary fire segmentation), and evaluation method. However, their IOU values ($0.03$-$0.24$) shows that even a single smaller resolution jump, less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$), and more target dataset (their $5,869$ samples vs. $1,202$ Landsat target samples in this study) still results in low overlap. This suggests that the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
+Direct numerical comparison with similar work in \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution ($2\,\text{km}$ $\to$ $375\,\text{m}$ single-stage vs. this study's $2\,\text{km}$ $\to$ $30\,\text{m}$ direct and cascaded mapping), prediction target (continuous BT regression vs. binary fire segmentation), and evaluation method. However, their IOU values ($0.03$-$0.24$) shows that even a single smaller resolution jump, less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$), and more target dataset (their $5,869$ samples vs. $1,202$ Landsat target samples in this study) still results in low overlap. This suggests that the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
 
 95\% CIs were computed for AUPRC via patch-level bootstrap resampling (Table \ref{tab:best_overall}). These are wide relative to the differences between configurations, reflecting the limited test-set size.
 
 \subsection{Over-Prediction, Thresholding, and Practical Implications}
 Across most configuration, Recall exceeds Precision (e.g. E1c: Recall $0.5051$ vs. Precision $0.0026$; E1d: Recall $0.3487$ vs. Precision $0.0044$). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. It also raises whether Otsu is well-suited to thresholding predictions, as it assumes a roughly bimodal intensity distribution. A fixed threshold or one derived from the validation PR curve may be worth comparing in future work. The Prevalence-Rate baseline, has no bimodal structure and Otsu collapses to the same all-negative mask as All-Zero baseline, hence identical.
 
-To quantify over-prediction, area inflation ratio was computed as predicted fire area divided by true fire area. Median inflation ranging from $39\times$ (E2.2a) to $457\times$ (E4.2b) across the four configurations, amplified by the extreme rarity of the positive class (Landsat fire pixels comprise only 0.06\% of a patch on average). Note this is a pixel-count ratio than spatial-overlap, it should be read alongside the low IoU values, which already indicate limited spatial localisation.
+To quantify over-prediction, area inflation ratio was computed (predicted fire area over true fire area). Median inflation ranging from $39\times$ (E2.2a) to $457\times$ (E4.2b) across the four configurations, amplified by extreme rarity of the positive class (Landsat fire pixels comprise only 0.06\% of a patch on average). Note this is a pixel-count ratio than spatial-overlap, it should be read alongside the low IoU values, which already indicate limited spatial localisation.
 
 For Artio's carbon-investment risk assessment use case, missed fire risk is generally more costly than overestimated risk: the current models are better suited to coarse regional estimates than precise predictions, and any operational use of predicted area would need calibration against this inflation factor. Notably, E2.2a shows lower inflation ($39\times$) than the other configurations, suggesting the cascaded HAUNet may produce more spatially concentrated predictions. Though given the overlapping CIs, this should be treated as observation rather than a confirmed architectural advantage.
 
 \subsection{Cascaded vs. Direct Pipeline}
-For HAUNet, Stage 2 (E2.2a: IoU $0.0072$, Precision $0.0074$, AUPRC $0.0142$ Boundary F1 $0.0071$, E2.2b: IOU $0.0089$, Precision $0.0095$, Boundary F1 $0.0104$) outperforms the best direct configuration (E1d: IoU $0.0044$, Precision $0.0044$, AUPRC $0.0188$, Boundary F1 $0.0041$) on all metrics except AUPRC and Recall. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in overlap-based metrics) but not necessarily improve confidence ranking. Stage 1 metrics are much higher than either Stage 2 or direct-pipeline (e.g. E2.1a AUPRC $0.1458$), but this is due to Stage 1 metric being evaluated at VIIRS target and resolution ($20 \times 20$). So metrics are not directly comparable.
+For HAUNet, Stage 2 (E2.2a: IoU $0.0072$, Precision $0.0074$, AUPRC $0.0142$ Boundary F1 $0.0071$, E2.2b: IOU $0.0089$, Precision $0.0095$, Boundary F1 $0.0104$) outperforms best direct configuration (E1d: IoU $0.0044$, Precision $0.0044$, AUPRC $0.0188$, Boundary F1 $0.0041$) on all metrics except AUPRC and Recall. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in overlap-based metrics) but not necessarily improve confidence ranking. Stage 1 metrics are much higher than either Stage 2 or direct-pipeline (e.g. E2.1a AUPRC $0.1458$), but this is due to Stage 1 metric being evaluated at VIIRS target and resolution ($20 \times 20$). So metrics are not directly comparable.
 
-A paired bootstrap test on AUPRC (E2.2a vs. E1d, matched by patch, 1,000 resamples) gives a mean difference of $-0.0042$ with 95\% CI $[-0.0192, 0.0086]$, and E2.2a exceeds E1d in only 30.2\% of resamples. While not significant, it is consistent with the direct configuration retaining an AUPRC advantage, even as the cascaded configuration improves overlap-based metrics. Reinforcing that these two metric families capture different aspects of prediction quality.
+Paired bootstrap test on AUPRC (E2.2a vs. E1d, matched by patch, 1,000 resamples) gives mean difference of $-0.0042$ with 95\% CI $[-0.0192, 0.0086]$, and E2.2a exceeds E1d in only 30.2\% of resamples. While not significant, it is consistent with the direct configuration retaining an AUPRC advantage, even as the cascaded configuration improves overlap-based metrics. Reinforcing that these two metric families capture different aspects of prediction quality.
 
 For the Autoencoder, there is similar pattern. The direct configuration achieves highest AUPRC (E3: $0.0120$), while cascaded Stage 2 achieve only slightly better IoU and Precision (E4.2a: IoU $0.0065$, Precision $0.0080$ vs. E3: IoU $0.0064$, Precision $0.0077$) and higher Recall (E4.2b: $0.4565$ vs. E3: $0.2592$). Errors from Stage 1 prediction propagate into Stage 2 training inputs, introducing noise that lowers confidence quality (AUPRC).
 
@@ -485,12 +485,12 @@ Comparing best Stage 2 configurations, HAUNet achieves higher AUPRC point estima
 
 Paired bootstrap tests on AUPRC support this pattern: HAUNet exceeds the Autoencoder in 84.2\% of resamples in the direct pipeline (E1d vs. E3, mean diff $+0.0069$, 95\% CI $[-0.0057, 0.0222]$) and 87.1\% in the cascaded pipeline (E2.2a vs. E4.2b, mean diff $+0.0036$, 95\% CI $[-0.0028, 0.0110]$). Neither interval excludes zero at the conventional 95\% threshold given the limited test-set size, but the consistency of this advantage across both pipelines and across roughly six in seven resamples suggests architectural difference favouring HAUNet.
 
-Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} confirm this behavior: Autoencoder predictions produce broader, low-confidence regions, likely due to their convolutional nature. After Otsu thresholding, these wider predictions cover larger ground areas, yielding higher point precision/IoU at the cost of spatial localisation. HAUNet produces sharper predictions with higher overall confidence ranking (PR curves in \ref{fig:pr_curves}). Furthermore, HAUNet Stage 1 provides higher-quality inputs to Stage 2 (E2.1a AUPRC 0.1458 vs. E4.1 AUPRC 0.0944) meaning less severe error propagation in the cascaded pipeline. Suggesting the results differ by Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
+Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} confirms this behaviour: Autoencoder predictions produce broader, low-confidence regions, likely due to their convolutional nature. After Otsu thresholding, these wider predictions cover larger ground areas, yielding higher point precision/IoU at the cost of spatial localisation. HAUNet produces sharper predictions with higher overall confidence ranking (PR curves in \ref{fig:pr_curves}). Furthermore, HAUNet Stage 1 provides higher-quality inputs to Stage 2 (E2.1a AUPRC $0.1458$ vs. E4.1 AUPRC $0.0944$) meaning less severe error propagation in the cascaded pipeline. Suggesting the results differ by Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
 
 \subsection{Effect of Target Dilation}
-Dilating the target mask improves AUPRC and IoU for HAUNet's direct configuration (E1d vs. E1: AUPRC $0.0188$ vs $0.0103$, IoU $0.0044$ vs $0.0021$) but not for the Autoencoder (E3d vs. E3: AUPRC $0.0098$ vs $0.0120$, IoU $0.0057$ vs $0.0064$, both lower with dilation). This may be because dilation allows for smoothing/tolerance for models like HAUNet that uses attention mechanisms to capture fine-grained information, while Autoencoder may benefit less from this because their convolutional nature smoothes outputs. This is consistent with the higher recall.
+Dilating the target improves AUPRC and IoU for HAUNet's direct configuration (E1d vs. E1: AUPRC $0.0188$ vs $0.0103$, IoU $0.0044$ vs $0.0021$) but not for the Autoencoder (E3d vs. E3: AUPRC $0.0098$ vs $0.0120$, IoU $0.0057$ vs $0.0064$, both lower with dilation). This may be because dilation allows for smoothing/tolerance for models like HAUNet that uses attention mechanisms to capture fine-grained information, while Autoencoder may benefit less from this because their convolutional nature smoothes outputs. This is consistent with the higher recall.
 
-Note that the Stage 1 dilation ablation (E2.1a vs. E2.1b) uses smaller kernel matched to the coarser VIIRS grid ($k=3$ vs. $k=7$) and shows AUPRC decrease with dilation (0.1458 vs. 0.1408). This is likely explained by the relative size of the dilation kernel: a $3\times3$ kernel on the $20\times20$ VIIRS grid affects approximately 15\% of the grid dimension, compared to a $7\times7$ kernel on the $256\times256$ Landsat grid, which affects only around 2.7\%. At VIIRS resolution, dilation of this relative magnitude may distort the shape of an already coarse, fire signal rather than providing the tolerance it offers at Landsat resolution. This suggests the appropriate dilation kernel size should be chosen relative to target grid resolution, and that the direct-pipeline dilation effect is not directly comparable to Stage 1.
+Note that Stage 1 dilation ablation (E2.1a vs. E2.1b) uses smaller kernel matched to the coarser VIIRS grid ($k=3$ vs. $k=7$) and shows AUPRC decrease with dilation ($0.1458$ vs. $0.1408$). This is likely explained by the relative size of the dilation kernel: a $3\times3$ kernel on the $20\times20$ VIIRS grid affects approximately 15\% of the grid dimension, compared to a $7\times7$ kernel on the $256\times256$ Landsat grid, which affects only around 2.7\%. At VIIRS resolution, dilation of this relative magnitude may distort the shape of an already coarse, fire signal rather than providing the tolerance it offers at Landsat resolution. This suggests the appropriate dilation kernel size should be chosen relative to target grid resolution, and that the direct-pipeline dilation effect is not directly comparable to Stage 1.
 
 \subsection{Feature Ablations}
 Out of direct HAUNet ablations, removing DEM (E1b) produces weakest performance (AUPRC $0.0050$, IoU $0.0020$) compared to full model (E1: AUPRC $0.0103$, IoU $0.0021$). This suggests topography is important and contributes to the model's ability to predict. Removing land cover (E1c) increases Recall ($0.5051$, the highest in this group) but lower Boundary F1 ($0.0020$, the lowest in the group), suggesting that land cover helps produce more spatially precise predictions. 
@@ -498,11 +498,11 @@ Out of direct HAUNet ablations, removing DEM (E1b) produces weakest performance 
 Removing the covariate pyramid encoder (E1a) unexpectedly improves overlap-based metrics relative to the full model (IoU: $0.0043$ vs. $0.0021$; Precision: $0.0043$ vs. $0.0021$; Boundary F1: $0.0039$ vs. $0.0030$), while AUPRC is only slightly lower ($0.0098$ vs. $0.0103$). One possible explanation is that without full-resolution covariate detail to sharpen its predictions, the model may default to coarser, more spatially diffuse output, similar in effect to the Autoencoder's convolutional smoothing discussed above. Broader predictions can improve overlap metrics, without necessarily improving the model's overall confidence ranking (reflected in the near-unchanged AUPRC). This may suggest the pyramid encoder's contribution is in sharpening prediction confidence and preserving fine spatial detail rather than in overall discriminative ability. This is worth confirming in future work.
 
 \section{Conclusions}
-This project investigated DL pipeline for downscaling GOES imagery into Landsat-resolution wildfire predictions, comparing direct and cascaded mapping across HAUNet and an Autoencoder baseline, in the context of Artio's carbon-investment risk assessment use case.
+This project investigated DL pipeline for downscaling GOES imagery into Landsat-resolution wildfire predictions, comparing direct and cascaded mapping across HAUNet and Autoencoder baseline, in the context of Artio's carbon-investment risk assessment use case.
 
-Absolute performance remained modest (AUPRC and IoU below $0.02$), reflecting the extreme resolution gap (2km to 30m), severe class imbalance, and limited training data (1,202 Landsat patches). All configurations exceeded all-zero and prevalence-rate baseline (AUPRC up to 30 times the random-classifier baseline) confirming genuine signal extraction rather than deployment-ready accuracy.
+Absolute performance remained modest (AUPRC and IoU $<0.02$), reflecting the extreme resolution gap ($2\,\text{km}$ to $30\,\text{m}$), severe class imbalance, and limited training data ($1,202$ Landsat patches). All configurations exceeded all-zero and prevalence-rate baseline (AUPRC up to $30\times$ the random-classifier baseline) confirming genuine signal extraction rather than deployment-ready accuracy.
 
-No pipeline design showed uniform advantage, and architecture comparisons were pipeline-dependent: in the direct pipeline the Autoencoder achieved better fixed-threshold overlap metrics (IoU, Precision) while HAUNet led on AUPRC and Recall, the cascaded pipeline HAUNet led on every metric. Paired bootstrap tests support consistent AUPRC advantage for HAUNet across both pipelines, though this was not statistically significant at this sample size. This divergence, alongside a large area inflation ratio (up to $457\times$ at Otsu threshold), suggests the current models are better suited to coarse regional risk flagging than precise active fire prediction for Artio's use case. Which has direct operational relevance, since missed fire is generally costlier than over-prediction. Target dilation improved HAUNet's direct-mapping performance but not the Autoencoder's, and an unexpected result from the covariate pyramid ablation suggests architectural contributions to confidence ranking and spatial precision are not always aligned.
+No pipeline design showed uniform advantage, and architecture comparisons were pipeline-dependent: in the direct pipeline the Autoencoder achieved better fixed-threshold overlap metrics while HAUNet led on AUPRC and Recall, the cascaded pipeline HAUNet led on every metric. Paired bootstrap tests support consistent AUPRC advantage for HAUNet across both pipelines, though this was not statistically significant at this sample size. This divergence, alongside a large area inflation ratio (up to $457\times$ at Otsu threshold), suggests the current models are better suited to coarse regional risk flagging than precise active fire prediction for Artio's use case. Which has operational relevance, since missed fire is costlier than over-prediction.
 
 Future work should prioritise a cross-architecture ablation isolating Stage 2 performance from Stage 1 input quality, and integration of temporal or climate covariates to move toward operational active fire and intensity prediction.
 
@@ -518,6 +518,29 @@ Future work should prioritise a cross-architecture ablation isolating Stage 2 pe
     \caption{GOES and covariates inputs for same samples as Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions}. Left to right: GOES C07, C14, TFI, DEM, Landcover.}
     \label{fig:input_reference}
 \end{figure}
+
+\subsection{Training and Validation Loss Curves}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/e1_haunet_direct_focal_dice_dilated_loss_curve.png}
+    \caption{Loss curve for E1d (Direct HAUNet, dilated targets)}
+    \label{fig:loss_curve_e1}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/e2_haunet_cascaded_stage2_focal_dice_loss_curve.png}
+    \caption{Loss curve for E2a (Cascaded HAUNet)}
+    \label{fig:loss_curve_e2}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/e3_autoencoder_direct_focal_dice_loss_curve.png}
+    \caption{Loss curve for E3 (Direct Autoencoder)}
+    \label{fig:loss_curve_e3}
+\end{figure}
+
 \printbibliography
 
 \end{document}
