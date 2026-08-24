@@ -401,3 +401,9 @@ Generated codes were manually reviewed, modified, and integrated by the author.
     * **Scope:** Generate code (written in `notebooks/explore_results_summary.ipynb`) that calculates the inflation ratio (predicted area / true area), normalised AUPRC (AUPRC / prevalence-baseline-AUPRC), and confidence intervals (by 1000x recompute).
     * **Prompt:** (pasting existing results and supervisor's feedback on adding normalised AUPRC, CI, and inflation ratio) "Generate code that makes relevant calculations for the following email"
     * **Human Modification:** Edit directory path names.
+
+* **Tool:** Anthropic Claude (Sonnet 5)
+    * **Date Used:** 24/08/2026
+    * **Scope:** Generate & edit test scripts.
+    * **Prompt:** (pasting existing test scripts & main code scripts) "Here are outdated test scripts, edit them as needed and add more."
+    * **Human Modification:** Edit directory path names.

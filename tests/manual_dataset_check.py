@@ -1,9 +1,10 @@
 """
-test_dataset.py
----------------
-Validates the WildfireDataset and pipeline outputs before full-scale run.
-Run from the repo root:
-    python3 src/data/test_dataset.py
+manual_dataset_check.py
+------------------------
+Manual diagnostic script for validating the WildfireDataset pipeline
+against real GCS data. NOT a pytest test file (requires live GCS access
+and billing). Run manually when GCS access is available:
+    python3 tests/manual_dataset_check.py
 """
 
 import sys
