@@ -59,7 +59,7 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Paper/Documentation:** P. Virtanen *et al.*, "SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python," *Nature Methods*, vol. 17, pp. 261–272, 2020, doi: 10.1038/s41592-019-0686-2.
     * **Usage:** Advanced mathematical algorithms, statistics, and scientific calculations complementing NumPy operations.
 
-# Online Resources
+# Online Resources/Websites
 
 * **Medium**
     * **Date Used:** 30/06/2026
@@ -84,6 +84,24 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **URL:** https://en.wikipedia.org/wiki/Otsu%27s_method
     * **Author/Organisation:** Wikipedia
     * **Usage:** Understand how Otsu thresholding works.
+
+* **Medium**
+    * **Date Used:** 15/08/2026
+    * **URL:** https://medium.com/@yukims19/auroc-and-auprc-b25183827e5a
+    * **Author/Organisation:** Yuki Li
+    * **Usage:** Understand AUPRC.
+
+* **Wikipedia**
+    * **Date Used:** 24/08/2026
+    * **URL:** https://en.wikipedia.org/wiki/Bootstrapping_(statistics)
+    * **Author/Organisation:** Wikipedia
+    * **Usage:** Understand how bootstrapping works.
+
+* **Github**
+    * **Date Used:** 24/08/2026
+    * **URL:** https://acclab.github.io/bootstrap-confidence-intervals.html
+    * **Author/Organisation:** Joses Ho
+    * **Usage:** Understand how confidence interval.
 
 # AI Usage
 

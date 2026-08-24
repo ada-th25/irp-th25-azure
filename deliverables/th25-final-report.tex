@@ -429,7 +429,7 @@ The evaluation results for the direct and cascaded pipelines are summarised in T
 \subsection{Overall Performance}
 Across configurations, absolute performance is generally low (most < $0.02$ AUPRC and IOU). But all exceed the All-Zero and Prevalence-Rate baselines, meaning the models are learning the fire signal rather than predicting background (relative to prevalence, best direct configuration (E1d) achieves an AUPRC of $0.0188$, roughly $30\times$ this baseline, the best cascaded configuration (E2.2a) roughly $23\times$, and the Autoencoders (E3, E4.2b) roughly $20\times$ and $17\times$ times respectively).
 
-Direct numerical comparison with \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution ($2\,\text{km}$ $\to$ $375\,\text{m}$ vs. this study's $2\,\text{km}$ $\to$ $30\,\text{m}$), prediction target (continuous BT vs. binary fire), and evaluation method. However, their IOU values ($0.03$-$0.24$) achieved with a single smaller resolution jump, less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$), and more target dataset (their $5,869$ samples vs. $1,202$ Landsat target samples in this study) still results in low overlap. Suggesting the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
+Direct comparison with \cite{badhanDeepLearningApproach2024} is not meaningful given differences in target resolution ($2\,\text{km}$ $\to$ $375\,\text{m}$ vs. this study's $2\,\text{km}$ $\to$ $30\,\text{m}$), prediction target (continuous BT vs. binary fire), and evaluation method. However, their IOU values ($0.03$-$0.24$) achieved with a single smaller resolution jump, less severe class imbalance (they use 20\% fire-coverage threshold, and smaller image $128 \times 128$), and more target dataset (their $5,869$ samples vs. $1,202$ Landsat target samples in this study) still results in low overlap. Suggesting the extreme resolution gap and class imbalance in this study make the low absolute performance unsurprising.
 
 95\% CIs were computed for AUPRC via patch-level bootstrap resampling (Table \ref{tab:best_overall}). These are wide relative to the differences between configurations, reflecting the limited test-set size.
 
@@ -522,6 +522,8 @@ where $\epsilon$ is a smoothing term preventing division by zero.
 \end{figure}
 
 \subsection{Training and Validation Loss Curves}
+Training and validation loss curves for all configurations are shown in Figures \ref{fig:loss_curve_e1}--\ref{fig:loss_curve_e3}. While training loss decreased continuously, validation loss plateaued early across most configurations. Despite using Focal-Dice loss to address class imbalance, positive pixels account for only 0.06\% of an average Landsat patch. Once the model reaches high confidence on background pixels, the accumulation of tiny residual background losses causes loss to plateau. Consequently, sharpening of active fire probabilities produces negligible changes in the overall loss value. In contrast, AUPRC evaluates decision thresholds independently of absolute background volume, capturing ongoing improvements in positive-class probability separation. Model checkpoints were therefore selected using validation AUPRC rather than validation loss.
+
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/e1_haunet_direct_focal_dice_dilated_loss_curve.png}
