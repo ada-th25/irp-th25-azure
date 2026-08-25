@@ -103,6 +103,12 @@ This file contains references and AI disclosures specific to the codebase in thi
     * **Author/Organisation:** Joses Ho
     * **Usage:** Understand how confidence interval.
 
+* **Medium**
+    * **Date Used:** 25/08/2026
+    * **URL:** https://medium.com/@douglaspsteen/precision-recall-curves-d32e5b290248
+    * **Author/Organisation:** Doug Steen
+    * **Usage:** To understand and diagnose PR curves.
+
 # AI Usage
 
 ### Declaration of Generative AI Tools

@@ -96,7 +96,7 @@
 %          ABSTRACT & CONTENTS
 % ==========================================
 \begin{abstract}
-With climate change, there is an increasing need for higher-resolution wildfire data for monitoring and risk assessment. This project investigates deep learning approaches for spatial downscaling of wildfire data from GOES imagery, addressing large resolution gap ($2\,\text{km}$ to $30\,\text{m}$) alongside severe class imbalance, and incorporating physical covariates (topography and land cover). A hybrid attention U-Net (HAUNet) and a simpler convolutional Autoencoder baseline are compared across two pipelines: direct downscaling ($2\,\text{km}$ to $30\,\text{m}$) and a cascaded approach via an intermediate VIIRS stage ($2\,\text{km}$ to $375\,\text{m}$ to $30\,\text{m}$). Absolute performance is modest but substantial relative to all-zero and prevalence-rate (no discriminative ability) baseline: e.g. the best direct configuration (HAUNet, AUPRC $0.0188$) performs $30\times$ better than prevalence-rate. Neither architecture shows a consistent advantage: HAUNet achieves higher AUPRC in the direct pipeline ($0.0188$ vs. $0.0120$), while Autoencoder achieves better spatial overlap at a fixed threshold ($0.0064$ vs. $0.0044$ IoU). Feature ablations show topographic covariates meaningfully contribute to performance.
+With climate change, there is an increasing need for higher-resolution wildfire data for monitoring and risk assessment. This project investigates deep learning approaches for spatial downscaling of wildfire data from GOES imagery, addressing large resolution gap ($2\,\text{km}$ to $30\,\text{m}$) alongside severe class imbalance, and incorporating physical covariates (topography and land cover). A hybrid attention U-Net (HAUNet) and a simpler convolutional Autoencoder baseline are compared across two pipelines: direct downscaling ($2\,\text{km}$ to $30\,\text{m}$) and a cascaded approach via an intermediate VIIRS stage ($2\,\text{km}$ to $375\,\text{m}$ to $30\,\text{m}$). Absolute performance is modest but substantial relative to all-zero and prevalence-rate (no discriminative ability) baseline: e.g. the best direct configuration (HAUNet, AUPRC $0.0188$) performs $30\times$ better than prevalence-rate. Neither architecture shows a consistent advantage: HAUNet achieves higher AUPRC in the direct pipeline ($0.0188$ vs. $0.0120$), while Autoencoder achieves better spatial overlap at a fixed threshold ($0.0064$ vs. $0.0044$ IoU). Feature ablations show topographic covariates meaningfully contribute to performance. Results indicate the models are better suited to coarse regional risk flagging than precise fire-area prediction, with direct relevance to practical risk applications where under-prediction is costlier than over-prediction.
 \end{abstract}
 
 % ==========================================
@@ -133,23 +133,23 @@ Accurate risk assessment requires wildfire data that is both high-spatial and hi
 In this project, to mitigate this limitation, the model integrates additional physical information, such as high-resolution topography and landcover to guide downscaling. The project aims to investigate whether cascaded downscaling ($2\,\text{km}$ to $375\,\text{m}$ to $30\,\text{m}$) produces better results compared to direct downscaling ($2\,\text{km}$ to $30\,\text{m}$). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate error caused by large resolution gaps. This project will compare cascaded and direct pipeline performance of downscaling architectures (hybrid attention U-Net and Autoencoder).
 
 \section{Current State of Remote Sensing Downscaling}
-Traditional downscaling methods often fail to capture the complex non-linear patterns in remote sensing data. DL methods have shown to outperform these approaches (\cite{sdrakaDeepLearningDownscaling2022}). CNN and U-Net architectures have been widely used for their ability to capture spatial features. While GAN-based methods have been used where sharpness is prioritised over pixel-wise accuracy. More recently, transformer-based models use long-range attention to capture dependencies beyond a convolution's receptive field (\cite{wangVGGTVisualGeometry2025}), and diffusion-based approaches have showed strong generative ability (\cite{wangSinSRDiffusionBasedImage2023}).
+Traditional downscaling methods often fail to capture the complex non-linear patterns in remote sensing data. DL methods have shown to outperform these approaches (\cite{sdrakaDeepLearningDownscaling2022}). CNN and U-Net architectures have been widely used for their ability to capture spatial features. GAN-based methods have been used where sharpness is prioritised over pixel-wise accuracy. Recently, transformer-based models use long-range attention to capture dependencies beyond a convolution's receptive field (\cite{wangVGGTVisualGeometry2025}), and diffusion-based approaches have showed strong generative ability (\cite{wangSinSRDiffusionBasedImage2023}).
 
-However, many architectures are optimised for texture-rich, natural images, and not designed for extreme resolution-gap ($66.7\times$ in this project). They perform poorly on active wildfire data, where the target signal is extremely sparse and localised. In risk assessment, fire mask is preferred for direct analysis. This creates two challenges: severe class imbalance that biases standard reconstruction loss functions (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping (\cite{wangDeepLearningImage2020}). Architectures are needed that can preserve fire signal against a dominant background and recover coherent fire-front structure.
+However, many architectures are optimised for texture-rich, natural images, and not designed for extreme resolution-gap ($66.7\times$ in this project). They may perform poorly on active wildfire data, where the target signal is extremely sparse and localised. In risk assessment, fire mask is preferred for direct analysis. This creates two challenges: severe class imbalance that biases standard reconstruction loss functions (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping (\cite{wangDeepLearningImage2020}). Architectures are needed that can preserve fire signal against a dominant background and recover coherent fire-front structure.
 
 Closest precedents to this task are \cite{mccarthyDeepLearningApproach2021} and \cite{badhanDeepLearningApproach2024}: trained a U-Net and autoencoder respectively to downscale GOES observations to VIIRS-equivalent $375\,\text{m}$ fire mask. Both stop at $375\,\text{m}$ resolution, leaving the challenge of downscaling to $30\,\text{m}$ resolution unaddressed.
 
 While wildfires are influenced by factors like terrain and landcover (\cite{sullivanInfernoFundamentalProcesses2017}), generic super-resolution models omit this information. Providing high-resolution covariates provides context and constraints for the model, which may help mitigate the ill-posed nature of the downscaling problem.
 
-Models that downscale across large resolution-gaps using coarse thermal imagery alone are constrained by satellite physical detection limits. Validation of GOES-16 against $30\,\text{m}$ Landsat-8 data demonstrates that the ABI active fire detection probability reaches $95\%$ only when a coarse $2\,\text{km}$ area contains at least $114$ active Landsat sub-pixels (\cite{liPreliminaryEvaluationGOES162020}). Detection probability drops below this threshold, coarse channels frequently carrying zero detectable signal for smaller fires. The equivalent $95\%$ detection for VIIRS $375\,\text{m}$ requires only 11 active sub-pixels, reducing signal threshold. This motivates staged downscaling: training on smaller resolution-gap, and intermediate VIIRS stage operating at lower detection threshold, meaning the input carries genuine signal where the direct downscaling may not.
+Models that downscale across large resolution-gaps using coarse thermal imagery alone are constrained by satellite physical detection limits. Validation of GOES-16 against $30\,\text{m}$ Landsat-8 data demonstrates that the active fire detection probability reaches $95\%$ only when coarse $2\,\text{km}$ area contains at least $114$ active Landsat sub-pixels (\cite{liPreliminaryEvaluationGOES162020}). Detection probability drops below this threshold, coarse channels frequently carrying zero detectable signal for smaller fires. The equivalent $95\%$ detection for VIIRS $375\,\text{m}$ requires only 11 active sub-pixels, reducing signal threshold. This motivates staged downscaling: training on smaller resolution-gap, and intermediate VIIRS stage operating at lower detection threshold, meaning the input carries genuine signal where the direct downscaling may not.
 
-Existing literature is dominated by direct downscaling across the full resolution gap. While multi-stage or task-decoupled downscaling exist (e.g. \cite{liUnmixingBasedSpatiotemporalImage2023} combines spatial mixing with residual compensation, or decoupling classification and regression \cite{wangTwoStageMachineLearning2026}), comparisons of multi-stage pipelines remain scarce. \cite{liStepwiseDownscalingERA5Land2025} demonstrated that stepwise downscaling of ERA5-Land air temperature ($10.5\,\text{km} \rightarrow 30\,\text{m}$) outperformed direct downscaling. However, they evaluated meteorological variables using tree-based ensembles. To date, no prior work researches cascaded DL downscaling, particularly for wildfire applications. Nor it explores the trade-off between the reduced per-stage resolution gap and the accumulation of error across stages using independent intermediate satellite ground-truths.
+Existing literature is dominated by direct downscaling across the full resolution gap. Comparisons of multi-stage pipelines also remain scarce. \cite{liStepwiseDownscalingERA5Land2025} demonstrated that stepwise downscaling of ERA5-Land air temperature ($10.5\,\text{km} \rightarrow 30\,\text{m}$) outperformed direct downscaling. However, they evaluated meteorological variables using tree-based ensembles. To date, no prior work researches cascaded DL downscaling, particularly for wildfire applications. Nor has existing work explored the trade-off between reduced per-stage resolution gap and the use of independent intermediate satellite ground-truths across stages.
 
-To address these gaps, the objectives of this project are:
+Main project objectives are:
 \begin{enumerate}
-    \item Develop a domain-specific downscaling framework tailored to the class imbalance, extreme resolution-gap, and physical constraints of active wildfires.
-    \item Compare downscaling performance of Hybrid Attention U-Net (HAUNet) against a baseline autoencoder.
-    \item Perform a controlled evaluation comparing a two-stage cascaded pipeline against direct downscaling to quantify performance across stages.
+    \item Develop and evaluate a downscaling framework tailored for active wildfires at $30\,\text{m}$ resolution, beyond $375\,\text{m}$, under the extreme class imbalance and resolution gap in this task.
+    \item Quantify whether attention-based architecture (HAUNet) has better measurable performance over simpler Autoencoder baseline.
+    \item Determine whether a cascaded pipeline through an intermediate VIIRS stage produces better downscaling performance than direct downscaling, addressing the advantages/trade-off between reduced per-stage resolution gap that remains unexplored in literature.
 \end{enumerate}
 
 \section{Data and Materials}\label{sec:data}
@@ -159,7 +159,7 @@ The GOES-16/17 data were obtained via public Google Cloud Platform (GCP) buckets
 
 There are $12,504$ and $1,202$ total VIIRS and Landsat patches respectively. The assymetry in sample counts is due to different sources: Landsat from pre-existing external dataset, VIIRS generated directly from a larger available archive. This gives Stage 1 (GOES $\to$ VIIRS) of the cascaded pipeline a larger, more reliable training set, since Stage 1 errors propagate directly into Stage 2's input. But the final 30m downscaling is trained on the same Landsat dataset.
 
-The data was processed so that all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets (mean fraction of positive target pixels are $0.85\%$ for VIIRS, $0.06\%$ for Landsat), stratified sampling was applied across temporal extent and fire pixel count bins during data splitting. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried.
+The data was processed so all regions of interest (ROIs) are dynamically reprojected to their localised UTM zone based on centroid coordinates. Detections from the NASA VIIRS S-NPP archive were filtered for "nominal" and "high" confidence points. Detections are clustered into $7680 \times 7680$ m grid cells within a 15-minute window of peak activity. VIIRS grid cell pixels record the peak Fire Radiative Power (FRP). Due to extreme class imbalance of the target fire datasets (mean fraction of positive target pixels are $0.85\%$ for VIIRS, $0.06\%$ for Landsat), stratified sampling was applied across temporal extent and fire pixel count bins during data splitting. The closest temporal GOES-16/17 scan within a $\pm 60$-minute guard window was queried.
 
 GOES-16/17 channels 7 ($3.9\,\mu$m, shortwave IR) and 14 ($11.2\,\mu$m, longwave IR) are used as they correspond to the spectral bands for fire-detection for their sensitivity to fire radiance. Similar spectral logic applied in VIIRS's active-fire algorithm, which similarly relies on a shortwave (I4, $3.74\,\mu$m) and longwave (I5, $11.45\,\mu$m) channel pair. (\cite{schmidtGOESRAdvancedBaseline})
 
@@ -397,7 +397,7 @@ The best model checkpoint during fine tuning and selection for final evaluation 
 
 \section{Results}\label{sec:results}
 
-The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. All metrics in this study are aggregated (per-sample, then averaged across the test set). Example predictions for the best Autoencoer and HAUNet configuration are shown in Figure \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} respectively. The GOES and covariates input plots for the same chosen samples are shown in \ref{app:input_plots}. Figure \ref{fig:pr_curves} shows the Precision-Recall (PR) curves across representative models compared to the random baseline. Table \ref{tab:best_overall} summarises the best-performing configuration within each architecture/pipeline group.
+The evaluation results for the direct and cascaded pipelines are summarised in Table \ref{tab:all_results}. All metrics in this study are aggregated (per-sample, then averaged across the test set). Example predictions and corresponding input plots for the best Autoencoer and HAUNet configuration are shown in \ref{app:prediction_plots} and \ref{app:input_plots}. Figure \ref{fig:pr_curves} shows the Precision-Recall (PR) curves across representative models compared to the random baseline. Table \ref{tab:best_overall} summarises the best-performing configuration within each architecture/pipeline group.
 
 \input{tables/evaluation_table.tex}
 
@@ -410,19 +410,19 @@ The evaluation results for the direct and cascaded pipelines are summarised in T
     \label{fig:pr_curves}
 \end{figure}
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figures/autoencoder_predictions.png}
-    \caption{Autoencoder direct E3 (a) and cascaded E4.2b (b) prediction examples. From left to right: a) GOES TFI, undilated target, raw predictions, postprocessed predictions, difference. b) input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
-    \label{fig:autoencoder_predictions}
-\end{figure}
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures/autoencoder_predictions.png}
+%     \caption{Autoencoder direct E3 (a) and cascaded E4.2b (b) prediction examples. From left to right: a) GOES TFI, undilated target, raw predictions, postprocessed predictions, difference. b) input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
+%     \label{fig:autoencoder_predictions}
+% \end{figure}
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figures/haunet_predictions.png}
-    \caption{HAUNet direct E1d (a) and cascaded E2.2a (b) prediction examples. From left to right: a) GOES TFI, undilated target, dilated target, raw predictions, postprocessed predictions, difference. b) input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
-    \label{fig:haunet_predictions}
-\end{figure}
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures/haunet_predictions.png}
+%     \caption{HAUNet direct E1d (a) and cascaded E2.2a (b) prediction examples. From left to right: a) GOES TFI, undilated target, dilated target, raw predictions, postprocessed predictions, difference. b) input GOES TFI, undilated target, dilated target, Stage 1 prediction, Stage 2 raw prediction, postprocessed prediction, difference.}
+%     \label{fig:haunet_predictions}
+% \end{figure}
 
 \section{Discussions} \label{sec:discussion}
 
@@ -434,7 +434,7 @@ Direct comparison with \cite{badhanDeepLearningApproach2024} is not meaningful g
 95\% CIs were computed for AUPRC via patch-level bootstrap resampling (Table \ref{tab:best_overall}). These are wide relative to the differences between configurations, reflecting the limited test-set size.
 
 \subsection{Over-Prediction, Thresholding, and Practical Implications}
-Across most configuration, Recall exceeds Precision (e.g. E1c: Recall $0.5051$ vs. Precision $0.0026$; E1d: Recall $0.3487$ vs. Precision $0.0044$). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. This pattern is also consistent with \cite{mccarthyDeepLearningApproach2021}, who report high recall with collapsing precision in their GOES-to-VIIRS U-Net, due to hot gases producing false thermal signal around the true fire area. It also raises whether Otsu is well-suited to thresholding predictions, as it assumes a roughly bimodal intensity distribution. A fixed threshold or one derived from the validation PR curve may be worth comparing in future work. The Prevalence-Rate baseline, has no bimodal structure and Otsu collapses to the same all-negative mask as All-Zero baseline, hence identical.
+Across most configuration, Recall exceeds Precision (e.g. E1c: Recall $0.5051$ vs. Precision $0.0026$; E1d: Recall $0.3487$ vs. Precision $0.0044$). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. This pattern is also consistent with \cite{mccarthyDeepLearningApproach2021}, who report high recall with collapsing precision in their GOES-to-VIIRS U-Net, due to hot gases producing false thermal signal around the true fire area. It also raises whether Otsu is well-suited to thresholding predictions, as it assumes a roughly bimodal intensity distribution. A fixed threshold or one derived from validation PR curve may be worth comparing in future work. The Prevalence-Rate baseline, has no bimodal structure and Otsu collapses to the same all-negative mask as All-Zero baseline, hence identical.
 
 To quantify over-prediction, area inflation ratio was computed (predicted fire area over true fire area). Median inflation ranging from $39\times$ (E2.2a) to $457\times$ (E4.2b) across the four configurations, amplified by extreme rarity of the positive class (Landsat fire pixels comprise only 0.06\% of a patch on average). Note this is a pixel-count ratio than spatial-overlap, it should be read alongside the low IoU values, which already indicate limited spatial localisation.
 
@@ -461,7 +461,7 @@ Comparing best Stage 2 configurations, HAUNet achieves higher AUPRC point estima
 
 Paired bootstrap tests on AUPRC support this pattern: HAUNet exceeds the Autoencoder in 84.2\% of resamples in the direct pipeline (E1d vs. E3, mean diff $+0.0069$, 95\% CI $[-0.0057, 0.0222]$) and 87.1\% in the cascaded pipeline (E2.2a vs. E4.2b, mean diff $+0.0036$, 95\% CI $[-0.0028, 0.0110]$). Neither interval excludes zero at the conventional 95\% threshold given the limited test-set size, but the consistency of this advantage across both pipelines and across roughly six in seven resamples suggests architectural difference favouring HAUNet.
 
-Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions} confirms this behaviour: Autoencoder predictions produce broader, low-confidence regions, likely due to their convolutional nature. After Otsu thresholding, these wider predictions cover larger ground areas, yielding higher point precision/IoU at the cost of spatial localisation. HAUNet produces sharper predictions with higher overall confidence ranking (PR curves in \ref{fig:pr_curves}). Furthermore, HAUNet Stage 1 provides higher-quality inputs to Stage 2 (E2.1a AUPRC $0.1458$ vs. E4.1 AUPRC $0.0944$) meaning less severe error propagation in the cascaded pipeline. Suggesting the results differ by Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
+Autoencoder predictions produce broader, low-confidence regions, likely due to their convolutional nature. After Otsu thresholding, these wider predictions cover larger ground areas, yielding higher point precision/IoU at the cost of spatial localisation. HAUNet produces sharper predictions with higher overall confidence ranking (PR curves in \ref{fig:pr_curves}). Furthermore, HAUNet Stage 1 provides higher-quality inputs to Stage 2 (E2.1a AUPRC $0.1458$ vs. E4.1 AUPRC $0.0944$) meaning less severe error propagation in the cascaded pipeline. Suggesting the results differ by Stage 2 architecture's own suitability for the task, and differences in the quality of Stage 1 predictions. Investigating these effects require cross-architecture ablation (e.g. evaluating an Autoencoder Stage 2 trained on HAUNet's Stage 1 predictions, vice versa), which is left for future work.
 
 \subsection{Effect of Target Dilation}
 Dilating the target improves AUPRC and IoU for HAUNet's direct configuration (E1d vs. E1: AUPRC $0.0188$ vs $0.0103$, IoU $0.0044$ vs $0.0021$) but not for the Autoencoder (E3d vs. E3: AUPRC $0.0098$ vs $0.0120$, IoU $0.0057$ vs $0.0064$, both lower with dilation). This may be because dilation allows for smoothing/tolerance for models like HAUNet that uses attention mechanisms to capture fine-grained information, while Autoencoder may benefit less from this because their convolutional nature smoothes outputs. This is consistent with the higher recall.
@@ -513,36 +513,44 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 where $\epsilon$ is a smoothing term preventing division by zero.
 
 \subsection{Input GOES and Covariate channels}\label{app:input_plots}
+Visual example of the input GOES and covariate channels (inputs used for examples shown in \ref{app:prediction_plots} are shown in Figure \ref{fig:input_reference}.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/input_reference.png}
-    \caption{GOES and covariates inputs for same samples as Figures \ref{fig:autoencoder_predictions} and \ref{fig:haunet_predictions}. Left to right: GOES C07, C14, TFI, DEM, Landcover.}
+    \caption{GOES and covariates inputs for same samples as figures in \ref{app:prediction_plots}. Left to right: GOES C07, C14, TFI, DEM, Landcover.}
     \label{fig:input_reference}
 \end{figure}
 
-\subsection{Training and Validation Loss Curves}
-Training and validation loss curves for all configurations are shown in Figures \ref{fig:loss_curve_e1}--\ref{fig:loss_curve_e3}. While training loss decreased continuously, validation loss plateaued early across most configurations. Despite using Focal-Dice loss to address class imbalance, positive pixels account for only 0.06\% of an average Landsat patch. Once the model reaches high confidence on background pixels, the accumulation of tiny residual background losses causes loss to plateau. Consequently, sharpening of active fire probabilities produces negligible changes in the overall loss value. In contrast, AUPRC evaluates decision thresholds independently of absolute background volume, capturing ongoing improvements in positive-class probability separation. Model checkpoints were therefore selected using validation AUPRC rather than validation loss.
+\subsection{Prediction Plots}\label{app:prediction_plots}
+Figures \ref{fig:autoencoder_predictions_direct} - \ref{fig:haunet_predictions_cascaded} show example predictions for best direct and cascaded HAUNet and Autoencoder models.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/e1_haunet_direct_focal_dice_dilated_loss_curve.png}
-    \caption{Loss curve for E1d (Direct HAUNet, dilated targets)}
-    \label{fig:loss_curve_e1}
+    \includegraphics[width=\linewidth]{figures/autoencoder_direct.png}
+    \caption{Autoencoder direct (E3) prediction examples. From left to right: GOES TFI, undilated target, dilated target, raw predictions, postprocessed predictions, difference.}
+    \label{fig:autoencoder_predictions_direct}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/e2_haunet_cascaded_stage2_focal_dice_loss_curve.png}
-    \caption{Loss curve for E2a (Cascaded HAUNet)}
-    \label{fig:loss_curve_e2}
+    \includegraphics[width=\linewidth]{figures/autoencoder_cascade_dilated.png}
+    \caption{Autoencoder cascaded (E4.2b) prediction examples. From left to right: GOES TFI, undilated target, dilated target, raw Stage 1 predictions, raw Stage 2 predictions, postprocessed predictions, difference.}
+    \label{fig:autoencoder_predictions_cascaded}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/e3_autoencoder_direct_focal_dice_loss_curve.png}
-    \caption{Loss curve for E3 (Direct Autoencoder)}
-    \label{fig:loss_curve_e3}
+    \includegraphics[width=\linewidth]{figures/haunet_direct_dilated.png}
+    \caption{HAUNet direct (E1d) prediction examples. From left to right: GOES TFI, undilated target, dilated target, raw predictions, postprocessed predictions, difference.}
+    \label{fig:haunet_predictions_direct}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/haunet_cascade_single_dilated.png}
+    \caption{HAUNet cascaded (E2.2a) prediction examples. From left to right: GOES TFI, undilated target, dilated target, raw Stage 1 predictions, raw Stage 2 predictions, postprocessed predictions, difference.}
+    \label{fig:haunet_predictions_cascaded}
 \end{figure}
 
 \printbibliography
