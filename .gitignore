@@ -20,3 +20,4 @@
 *.tiff
 *.geojson
 *.pyc
+*.DS_Store

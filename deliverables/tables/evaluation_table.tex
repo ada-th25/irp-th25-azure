@@ -37,7 +37,7 @@
 \begin{table}[htbp]
 \centering
 \footnotesize
-\caption{Model performance evaluation across feature ablations vs. fixed baselines. Precision, Recall, Boundary F1 are computed on Otsu-thresholded predictions. Bold indicates the best value for that metric among the shown ablations of the same architecture and target}
+\caption{Model performance evaluation across feature ablations, baselines and no-skill reference points. Precision, Recall, Boundary F1 are computed on Otsu-thresholded predictions. Bold indicates the best value for that metric among the shown ablations of the same architecture and target}
 \label{tab:all_results}
 \begin{tabularx}{\textwidth}{lYYYYY}
 \toprule
@@ -65,7 +65,7 @@ E4.1: Stage 1 (no dilation) & 0.0944 & 0.0327 & 0.0367 & 0.3966 & 0.0500 \\ \cmi
 E4.2a: Stage 2 (no dilation) & 0.0106 & \textbf{0.0065} & \textbf{0.0080} & 0.2761 & 0.0037 \\
 E4.2b: Stage 2 (dilated targets) & \textbf{0.0106} & 0.0056 & 0.0058 & \textbf{0.4565} & \textbf{0.0040} \\ \midrule
 
-Baseline: All-Zero & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\
-Baseline: Prevalence-Rate & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\ \bottomrule
+Reference: All-Zero & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\
+Reference: Prevalence-Rate & 0.0006 & 0.0000 & 0.0000 & 0.0000 & N/A \\ \bottomrule
 \end{tabularx}
 \end{table}
