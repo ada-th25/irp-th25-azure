@@ -191,3 +191,15 @@
 - **Work Plan Before Next Meeting:**
     - Try implementing the confidence interval/normalised AUPRC implementation and see if it can be added to report.
     - Look at feedback comments on the report and make relevant changes.
+
+### Meeting with Main Supervisor (25 Aug 2026)
+- **Present:** Tsuyu Huang (Student), Jorge Veiras (Main Supervisor)
+- **Key Points:**
+    - Final feedback on report & repository.
+- **Feedback:**
+    - Remove some plots, reduce words.
+    - Seperate some prediction plots and put in appendix so it's bigger.
+    - Good repository and report overall.
+- **Work Plan Before Next Meeting:**
+    - Implement final changes to report.
+    - Proofreading before submission.
