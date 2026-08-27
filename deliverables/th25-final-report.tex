@@ -435,18 +435,18 @@ Direct comparison with \cite{badhanDeepLearningApproach2024} is not meaningful g
 95\% CIs were computed for AUPRC via patch-level bootstrap resampling (Table \ref{tab:best_overall}). These are wide relative to the differences between configurations, reflecting the limited test-set size.
 
 \subsection{Over-Prediction, Thresholding, and Practical Implications}
-Across most configuration, Recall exceeds Precision (e.g. E1c: Recall $0.5051$ vs. Precision $0.0026$; E1d: Recall $0.3487$ vs. Precision $0.0044$). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. This pattern is also consistent with \cite{mccarthyDeepLearningApproach2021}, who report high recall with collapsing precision in their GOES-to-VIIRS U-Net, due to hot gases producing false thermal signal around the true fire area. This also raises whether Otsu, which assumes an approximately bimodal score distribution, is optimal for these predictions; it was used for consistency with \cite{badhanDeepLearningApproach2024} and as a parameter-free alternative to fixed threshold. Using a fixed threshold derived from validation PR curve may be worth comparing in future work. The Prevalence-Rate, has no bimodal structure and Otsu collapses to the same all-negative mask as All-Zero, hence identical.
+Across most configurations, Recall exceeds Precision (e.g. E1c: Recall $0.5051$ vs. Precision $0.0026$; E1d: Recall $0.3487$ vs. Precision $0.0044$). This indicates the models are over-predicting fire pixels. However, in insurance, over-predicting may be preferable to under-predicting, as false negatives could have more severe consequences than false positives. This pattern is also consistent with \cite{mccarthyDeepLearningApproach2021}, who report high recall with collapsing precision in their GOES-to-VIIRS U-Net, due to hot gases producing false thermal signal around the true fire area. This also raises whether Otsu, which assumes an approximately bimodal score distribution, is optimal for these predictions; it was used for consistency with \cite{badhanDeepLearningApproach2024} and as a parameter-free alternative to fixed threshold. Using a fixed threshold derived from validation PR curve may be worth comparing in future work. The Prevalence-Rate, has no bimodal structure and Otsu collapses to the same all-negative mask as All-Zero, hence identical.
 
-To quantify over-prediction, area inflation ratio was computed (predicted fire area over true fire area). Median inflation ranging from $39\times$ (E2.2a) to $457\times$ (E4.2b) across the four configurations, amplified by extreme rarity of the positive class (Landsat fire pixels comprise only 0.06\% of a patch on average). Note this is a pixel-count ratio than spatial-overlap, it should be read alongside the low IoU values, which already indicate limited spatial localisation.
+To quantify over-prediction, area inflation ratio was computed (predicted fire area over true fire area). Median inflation ranging from $39\times$ (E2.2a) to $457\times$ (E4.2b) across the four configurations, amplified by extreme rarity of the positive class (Landsat fire pixels comprise only 0.06\% of a patch on average). Note that this is a pixel-count ratio than a spatial-overlap, it should be read alongside the low IoU values, which already indicate limited spatial localisation.
 
-For Artio's carbon investment risk assessment use case, under-estimating fire is generally more costly than overestimating: the current models are better suited to coarse regional estimates than precise predictions, and any operational use of predicted area would need calibration against this inflation factor. Notably, E2.2a shows lower inflation ($39\times$) than the other configurations, suggesting the cascaded HAUNet may produce more spatially concentrated predictions. Though given the overlapping CIs, this should be treated as observation rather than a confirmed architectural advantage.
+For Artio's carbon investment risk assessment use case, under-estimating fire is generally more costly than overestimating: the current models are better suited to coarse regional estimates than precise predictions, and any operational use of predicted area would need calibration against this inflation factor. Notably, E2.2a shows lower inflation ($39\times$) than the other configurations, suggesting the cascaded HAUNet may produce more spatially concentrated predictions. Though given the overlapping CIs, this should be treated as an observation rather than a confirmed architectural advantage.
 
 \subsection{Cascaded vs. Direct Pipeline}
 For HAUNet, Stage 2 (E2.2a: IoU $0.0072$, Precision $0.0074$, AUPRC $0.0142$, Boundary F1 $0.0071$, E2.2b: IOU $0.0089$, Precision $0.0095$, Boundary F1 $0.0104$) outperforms best direct configuration (E1d: IoU $0.0044$, Precision $0.0044$, AUPRC $0.0188$, Boundary F1 $0.0041$) on all metrics except AUPRC and Recall. This suggests the intermediate stage may help the model produce spatially better localised predictions (reflected in overlap-based metrics) but not necessarily improve confidence ranking. Stage 1 metrics are much higher than either Stage 2 or direct-pipeline (e.g. E2.1a AUPRC $0.1458$), but this is due to Stage 1 metric being evaluated at VIIRS target and resolution ($20 \times 20$). So metrics are not directly comparable.
 
 Paired bootstrap test on AUPRC (E2.2a vs. E1d, matched by patch, $1,000$ resamples) gives mean difference of $-0.0042$ with 95\% CI $[-0.0192, 0.0086]$, and E2.2a exceeds E1d in only 30.2\% of resamples. While not significant, it is consistent with the direct configuration retaining an AUPRC advantage, even as the cascaded configuration improves overlap-based metrics. Reinforcing that these two metric families capture different aspects of prediction quality.
 
-For the Autoencoder, there is similar pattern. The direct configuration achieves highest AUPRC (E3: $0.0120$), while cascaded Stage 2 achieve only slightly better IoU and Precision (E4.2a: IoU $0.0065$, Precision $0.0080$ vs. E3: IoU $0.0064$, Precision $0.0077$) and higher Recall (E4.2b: $0.4565$ vs. E3: $0.2592$). Errors from Stage 1 prediction propagate into Stage 2 training inputs, introducing noise that lowers confidence quality (AUPRC).
+For the Autoencoder, there is similar pattern. The direct configuration achieves highest AUPRC (E3: $0.0120$), while cascaded Stage 2 achieves only slightly better IoU and Precision (E4.2a: IoU $0.0065$, Precision $0.0080$ vs. E3: IoU $0.0064$, Precision $0.0077$) and higher Recall (E4.2b: $0.4565$ vs. E3: $0.2592$). Errors from Stage 1 prediction propagate into Stage 2 training inputs, introducing noise that lowers confidence quality (AUPRC).
 
 A paired bootstrap test on AUPRC (E4.2b vs. E3, matched by patch) gives a mean difference of $-0.0013$ with 95\% CI $[-0.0082, 0.0052]$, and E4.2b exceeds E3 in only 32.3\% of resamples, indicating a weaker and less consistent AUPRC gap for the Autoencoder than observed for HAUNet, though neither reaches statistical significance at this sample size.
 
@@ -457,7 +457,6 @@ Comparing best Stage 2 configurations, HAUNet achieves higher AUPRC point estima
 \begin{itemize}
     \item \textbf{Cascaded Pipeline:} HAUNet leads autoencoder on AUPRC (E2.2a: $0.0142$ vs. E4.2a / E4.2b: $0.0106$), IoU (E2.2b: $0.0089$ vs. E4.2a: $0.0065$), Precision ($0.0095$ vs. $0.008$) and Boundary F1 ($0.0104$ vs. $0.004$).
     \item \textbf{Direct Pipeline:} HAUNet leads Autoencoder on AUPRC (E1d: $0.0188$ vs. E3: $0.0120$), Recall ($0.3490$ vs. $0.2592$). While direct Autoencoder achieves higher IoU ($0.0064$ vs. $0.0044$) and Precision ($0.0077$ vs. $0.0044$).
-
 \end{itemize}
 
 Paired bootstrap tests on AUPRC are consistent with this pattern: HAUNet exceeds Autoencoder in 84.2\% of resamples in the direct pipeline (E1d vs. E3, mean diff $+0.0069$, 95\% CI $[-0.0057, 0.0222]$) and 87.1\% in the cascaded pipeline (E2.2a vs. E4.2b, mean diff $+0.0036$, 95\% CI $[-0.0028, 0.0110]$). Both intervals cross zero, so neither comparison is significant at 95\% threshold given the limited test-set size, and this should be read as trend rather than confirmed evidence of an architectural advantage. The consistency of the sign and resample proportion across both pipelines makes HAUNet's edge worth investigating further, but a larger test set would be needed.
@@ -479,7 +478,7 @@ This project investigated DL pipeline for downscaling GOES imagery into Landsat-
 
 Absolute performance remained modest (AUPRC and IoU $<0.02$), reflecting the extreme resolution gap ($2\,\text{km}$ to $30\,\text{m}$), severe class imbalance, and limited training data ($1,202$ Landsat patches). All configurations exceeded all-zero and prevalence-rate (AUPRC up to $30\times$ the random-classifier) confirming genuine signal extraction rather than deployment-ready accuracy.
 
-No pipeline design showed uniform advantage, and architecture comparisons were pipeline-dependent: in the direct pipeline the Autoencoder achieved better fixed-threshold overlap metrics while HAUNet led on AUPRC and Recall, the cascaded pipeline HAUNet led on every metric. Paired bootstrap tests support consistent AUPRC advantage for HAUNet across both pipelines, though this was not statistically significant at this sample size. This divergence, alongside a large area inflation ratio (up to $457\times$ at Otsu threshold), suggests the current models are better suited to coarse regional risk flagging than precise active fire prediction for Artio's use case. Which has operational relevance, since missed fire is costlier than over-prediction.
+No pipeline design showed uniform advantage, and architecture comparisons were pipeline-dependent: in the direct pipeline the Autoencoder achieved better fixed-threshold overlap metrics while HAUNet led on AUPRC and Recall, the cascaded pipeline HAUNet led on every metric. Paired bootstrap tests support consistent AUPRC advantage for HAUNet across both pipelines, though this was not statistically significant at this sample size. This divergence, alongside a large area inflation ratio (up to $457\times$ at Otsu threshold), suggests the current models are better suited to coarse regional risk flagging than precise active fire prediction for Artio's use case, since missed fire is costlier than over-prediction.
 
 Future work should prioritise a cross-architecture ablation isolating Stage 2 performance from Stage 1 input quality, and integration of temporal or climate covariates to move toward operational active fire and intensity prediction.
 
@@ -514,7 +513,7 @@ Dice Loss (\cite{milletariVNetFullyConvolutional2016}) tries to maximise the spa
 where $\epsilon$ is a smoothing term preventing division by zero.
 
 \subsection{Input GOES and Covariate channels}\label{app:input_plots}
-Visual example of the input GOES and covariate channels (inputs used for examples shown in \ref{app:prediction_plots} are shown in Figure \ref{fig:input_reference}.
+Visual example of the input GOES and covariate channels (inputs used for examples shown in \ref{app:prediction_plots} are shown in Figure \ref{fig:input_reference}).
 
 \begin{figure}[htbp]
     \centering
@@ -525,6 +524,13 @@ Visual example of the input GOES and covariate channels (inputs used for example
 
 \subsection{Prediction Plots}\label{app:prediction_plots}
 Figures \ref{fig:autoencoder_predictions_direct} - \ref{fig:haunet_predictions_cascaded} show example predictions for best direct and cascaded HAUNet and Autoencoder models.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/stage1_plots.png}
+    \caption{Stage 1 (GOES $\to$ VIIRS) example predictions. Left to right: GOES TFI, target VIIRS, raw predictions.}
+    \label{fig:stage1_plots}
+\end{figure}
 
 \begin{figure}[htbp]
     \centering
