@@ -128,7 +128,7 @@ Generated codes were manually reviewed, modified, and integrated by the author. 
 \section{Introduction}
 Rising Net-Zero investment has driven funding for carbon-reduction projects such as reforestation (\cite{InvestmentTrendsOutcomes}), which are increasingly at risk from wildfires that release stored carbon back into the atmosphere as fire frequency and severity escalate with climate change (\cite{jonesClimateChangeIncreases}). This causes economic losses for the insurance industry. e.g. The January 2025 Los Angeles County wildfires set an all-time record, causing \$40 billion in insured losses (\cite{staffHowWildfiresStorms2026}). In carbon accounting, underestimating fire area leaves projects underinsured, whereas overestimation is conservative (\cite{grassiApplyingConservativenessPrinciple2008}). This project, conducted with Artio, aims to provide higher-resolution fire data to give better confidence and risk assessment for insurance industry.
 
-Accurate risk assessment requires wildfire data that is both high-spatial and high-temporal resolution. Geostationary (GEO) satellites provide high-temporal frequency but coarse spatial resolution, while Low Earth Orbit (LEO) satellites offer high spatial detail at low temporal frequency. Existing Deep Learning (DL) downscaling methods bridge this trade-off, but the resolution gap between GEO ($2\,\text{km}$) and LEO ($30\,\text{m}$) is extreme: a single $2\,\text{km}$ GOES pixel covers roughly $4,444$ Landsat $30\,\text{m}$ pixels. This is an ill-posed, one-to-many super-resolution task prone to physically implausible outputs (\cite{wangDeepLearningImage2020}).
+Accurate risk assessment requires wildfire data that is both high-spatial and high-temporal resolution. Geostationary (GEO) satellites provide high-temporal frequency but coarse spatial resolution, while Low Earth Orbit (LEO) satellites offer high spatial detail at low temporal frequency. Existing Deep Learning (DL) downscaling methods bridge this trade-off, but the resolution gap between GEO ($2\,\text{km}$) and LEO ($30\,\text{m}$) is extreme: a single $2\,\text{km}$ GOES pixel covers roughly $4,444$ Landsat $30\,\text{m}$ pixels. This is an ill-posed, one-to-many super-resolution task prone to physically implausible outputs.
 
 To mitigate this limitation, this project integrates additional physical information, such as high-resolution topography and landcover to guide downscaling. The project aims to investigate whether cascaded downscaling ($2\,\text{km}$ to $375\,\text{m}$ to $30\,\text{m}$) produces better results compared to direct downscaling ($2\,\text{km}$ to $30\,\text{m}$). By breaking up the downscaling process, the model trains on a smaller resolution gap, aiming to mitigate error caused by large resolution gaps. This project will compare cascaded and direct pipeline performance of downscaling architectures (hybrid attention U-Net and Autoencoder).
 
@@ -148,7 +148,7 @@ Existing literature is dominated by direct downscaling across the full resolutio
 Main project objectives are:
 \begin{enumerate}
     \item Develop and evaluate a downscaling framework tailored for active wildfires at $30\,\text{m}$ resolution, beyond $375\,\text{m}$, that exceeds the no-skill prevalence-rate baseline under the extreme class imbalance and resolution gap in this task.
-    \item Quantify whether attention-based architecture (HAUNet) achieves higher AUPRC andx§ overlap-based metrics than a simpler Autoencoder baseline under matched training conditions, isolating the contribution of HAUNet's attention mechanisms.
+    \item Quantify whether attention-based architecture (HAUNet) achieves higher AUPRC and overlap-based metrics than a simpler Autoencoder baseline under matched training conditions, isolating the contribution of HAUNet's attention mechanisms.
     \item Determine whether cascaded pipeline with intermediate VIIRS stage achieves higher metrics than direct downscaling, quantifying trade-offs between reduced per-stage resolution gap that remains unexplored in literature.
 \end{enumerate}
 
@@ -254,11 +254,11 @@ HAUNet was selected as one of the architectures for the following reasons:
 \begin{enumerate}
     \item Dual attention: channel attention to capture global information across feature channels and spatial attention to capture spatial relationships. This is useful for wildfire data, where the fire signal is sparse and localised, but the physical context (e.g. terrain, landcover) is important for accurate downscaling.
     \item CIM: standard skip-connections concatenate features at matching spatial resolution, but this assume they are semantically comparable. CIM addresses this by explicitly bridging semantic and resolution gaps between encoder outputs at different scales prior to fusion. This helps to better learn representation at different scales, which is useful for super-resolution tasks like this (downscaling by $66.7\times$).
-    \item Both the autoencoder baseline (\ref{sec:autoencoder}) and HAUNet share the similar underlying encoder-decoder-with-skip-connections structure. This allows the comparison between the two models to isolate the contribution of HAUNet's attention mechanisms and skip-connection design.
+    \item Both the autoencoder baseline (\ref{sec:autoencoder}) and HAUNet share similar underlying encoder-decoder with skip-connections structure. This allows the comparison between the two models to isolate the contribution of HAUNet's attention mechanisms and skip-connection design.
 \end{enumerate}
 
 \subsection{Autoencoder Baseline}\label{sec:autoencoder}
-The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024} to downscale from GOES to VIIRS resolution. It is adapted to this project to concatenate the covariates with the fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, full architecture is shown in Figure \ref{fig:autoencoder}.
+The baseline architecture follows the autoencoder proposed by \cite{badhanDeepLearningApproach2024} to downscale from GOES to VIIRS resolution. It is adapted to this project to concatenate the covariates with fire data inputs, and outputs are fire mask segmentation rather than continuous BT values. The autoencoder follows a standard U-Net-style structure, shown in Figure \ref{fig:autoencoder}.
 
 \begin{figure}[htbp]
     \centering
@@ -271,7 +271,7 @@ This baseline is trained under identical conditions to HAUNet (loss, optimiser, 
 
 \subsection{Loss Functions}
 \subsubsection{Focal Dice Loss}
-Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss was used (\cite{wangFocalDiceLoss2018}). While Focal loss forces the model to focus on hard-to-classify edge pixels, the Dice component maximises spatial region overlap. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss:
+Active fire pixels represent a small fraction of each patch, resulting in extreme class imbalance. To address this, Focal Dice Loss was used (\cite{wangFocalDiceLoss2018}). While Focal loss forces the model to focus on hard-to-classify pixels, the Dice component maximises spatial region overlap. It combines Focal Loss (which down-weights background pixels via $(1-p_t)^\gamma$) with Dice Loss:
 
 \begin{equation}\label{eq:focaldiceloss}
     \mathcal{L}_{\text{FD}} = w_f \cdot \mathcal{L}_{\text{focal}}(\alpha, \gamma) + w_d \cdot \mathcal{L}_{\text{dice}}
@@ -282,19 +282,17 @@ where $w_f$ and $w_d$ are weights of the losses, $\alpha \in [0, 1]$ balances po
 The hyperparameters used are: $\alpha = 0.85, \gamma = 1.5, w_f = 1.0, w_d = 1.0$, which was assigned for final model training after tuning with subset of training samples ($1,000$). A higher $\alpha$ was assigned to penalise false negatives more heavily given the extreme class imbalance.
 
 \subsection{Training Setup}
-The dataset is split into training/validation/testing (80/10/10). This split uses stratified random sampling across four quantile bins based on the active pixel count for balanced representation. Weighted random sampling is applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
+The dataset was split into training/validation/testing (80/10/10). Split uses stratified random sampling across four quantile bins based on the active pixel count for balanced representation. Weighted random sampling was applied during training to address class imbalance, where sample weights $w_i$ for each patch $i$ were assigned based on the count of positive fire pixels $n_i$:
 
 \begin{equation}\label{eq:weighted_sampling}
     w_i = \max(n_i, 1)
 \end{equation}
 
-Note: This biases training toward larger fires, which \cite{mcdermottCloserLookAUROC2025} note is reasonable for Artio's use case since larger fires represent more insured exposure, though reported metrics should not be read as uniformly representative of small-fire performance. Evaluation metrics are unweighted per-patch means, so performance reflects average behaviour across all fire sizes.
+Note: This biases training toward larger fires, which is reasonable for Artio's use case since larger fires represent more insured exposure, though reported metrics should not be read as uniformly representative of small-fire performance. Evaluation metrics are unweighted per-patch means, so performance reflects average behaviour across all fire sizes.
 
 Inputs are scaled prior to model ingestion. The GOES and DEM channels undergo Z-score standardisation using mean and standard deviation precomputed exclusively from training split. DEM covariates were converted to km. The landcover data is also one-hot encoded into 10 channels, each representing a landcover class.
 
-For the targets, the continuous VIIRS FRP values are binarised, and Landsat targets are already binarised. Depending on the experimental configuration, these are transformed using spatial dilation.
-
-Spatial dilation was applied using max-pooling kernel ($3 \times 3$ for VIIRS and $7 \times 7$ for Landsat) to tackle class imbalance, giving denser signal for the model to learn (\cite{wangFocalDiceLoss2018}). Landsat targets are much sparser than the VIIRS, so larger dilation kernel was used to provide a denser training signal.
+For the targets, the continuous VIIRS FRP values are binarised, and Landsat targets are already binarised. Depending on the experimental configuration, these are transformed using spatial dilation. This was applied using max-pooling kernel ($3 \times 3$ for VIIRS and $7 \times 7$ for Landsat) to tackle class imbalance, giving denser signal for the model to learn (\cite{wangFocalDiceLoss2018}). Landsat targets are much sparser than the VIIRS, so larger dilation kernel was used.
 
 The Landsat branch has limited number of samples ($1,202$ total), and given the extreme class imbalance in fire pixels, training samples were augmented via independent horizontal and vertical flips (each applied with probability 0.5), applied to the input and target. This increases the effective diversity of the training set. No augmentation was applied to validation or test splits.
 
@@ -310,6 +308,8 @@ HAUNet was assessed under the following ablations, in addition to the direct-vs-
     \item with and without land cover as an input covariate.
     \item with and without target dilation (to assess the effect of target representation on model performance).
 \end{enumerate}
+
+Full experiments are shown in Table \ref{tab:experiments}.
 
 In the cascaded pipeline, Stage 1 (GOES $\to$ VIIRS) was trained on GOES/VIIRS pairs to predict VIIRS-resolution ($375$m) fire mask from GOES input. Stage 2 (VIIRS $\to$ Landsat) is intended to further downscale this to Landsat resolution ($30$m). However, VIIRS and Landsat overpasses times do not overlap, so matching VIIRS/Landsat pairs are not available in the same way GOES/VIIRS pairs are. To address this mismatch, Stage 2 is trained using the trained Stage 1 model's predictions on GOES/Landsat dataset as inputs. For each GOES/Landsat pair, the Stage 1 model produces a predicted VIIRS-resolution fire mask from the temporally matched GOES input, and this prediction is paired with the corresponding Landsat ground truth to train Stage 2. This ensures both stages of the cascaded pipeline operate on inputs available at inference time (i.e. Stage 2 never has access to real VIIRS observations at test time either), avoiding train/inference mismatch that would occur if Stage 2 were trained on ground-truth VIIRS data unavailable in a genuinely cascaded operational setting.
 
@@ -344,7 +344,7 @@ E4.2b  & Autoencoder & Cascaded (S2)  & Full, dilated target  &  Ablation: targe
 
 \subsection{Evaluation Metrics}
 
-For Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \times 256$) with the target ($20 \times 20$), an adaptive spatial max-pooling was applied to the output logits before calculating loss and metrics. All reported quantitative metrics reflect performance evaluated on the coarse $20 \times 20$ target.
+For Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \times 256$) with the target ($20 \times 20$), an adaptive spatial max-pooling was applied to the output logits before calculating loss and metrics. All reported Stage 1 metrics reflect performance evaluated on $20 \times 20$ VIIRS target. Following metrics were used:
 
 \begin{itemize}
     \item \textbf{AUPRC (Area Under Precision-Recall Curve):} Measures the performance of the model across different thresholds, making it suitable for imbalanced datasets (\cite{davisRelationshipPrecisionRecallROC2006}):
@@ -374,7 +374,7 @@ For Stage 1 cascaded pipeline, to align the model prediction dimensions ($256 \t
     Where $TP$, $FP$, and $FN$ represent true positive, false positive, and false negative counts across the spatial grid, and $\epsilon = 10^{-8}$ prevents division by zero.
 \end{itemize}
 
-For Boundary F1, IOU, Precision, and Recall, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled masks (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
+For Boundary F1, IOU, Precision, and Recall, the evaluation is performed on post-processed outputs using Otsu's thresholding to binarise the predicted downscaled output (\cite{zhangImageSegmentationBased2008}). This calculates the variance between the foreground and background classes to determine an optimal threshold $t^*$ that maximises the separation between them. Given class probabilities $\omega_0(t), \omega_1(t)$ and means $\mu_0(t), \mu_1(t)$ for pixels above/below threshold $t$, the variance is:
 
 \begin{equation}\label{eq:otsu}
     \sigma_B^2(t) = \omega_0(t)\,\omega_1(t)\,\left(\mu_0(t) - \mu_1(t)\right)^2, \qquad t^* = \operatorname*{arg\,max}_{t} \; \sigma_B^2(t)
@@ -382,12 +382,12 @@ For Boundary F1, IOU, Precision, and Recall, the evaluation is performed on post
 
 Otsu threshold is calculated and applied per patch. Otsu is used over a fixed threshold (e.g. $0.5$) because the extreme class imbalance means that the model may predict low probabilities for the positive class, and a fixed threshold could lead to poor separation.
 
-To find uncertainty of metrics given the limited test-set size, 95\% confidence intervals (CI) were computed on AUPRC via percentile bootstrap resampling at the patch level (1,000 resamples with replacement). To assess whether differences between configurations were statistically meaningful, paired bootstrap tests were performed for selected comparisons: same resampled patches were used to compute AUPRC for both configurations in each resample, giving distribution of paired differences from which a 95\% CI on the difference, and find the proportion of resamples favouring one configuration.
+To find uncertainty of metrics given the limited test-set size, 95\% confidence intervals (CI) were computed on AUPRC via percentile bootstrap resampling at the patch level ($1,000$ resamples with replacement). To assess whether differences between configurations were statistically meaningful, paired bootstrap tests were performed for selected comparisons. Same resampled patches were used to compute AUPRC for both configurations in each resample, giving distribution of paired differences from which a 95\% CI on the difference, and find the proportion of resamples favouring one configuration.
 
-Due to the extreme rarity of the positive class, absolute metric values are difficult to interpret without a reference point. The following baselines were used:
+Due to the extreme rarity of the positive class, absolute metric values are difficult to interpret without reference points. The following baselines/margin were used:
 \begin{enumerate}
-    \item an all-background predictor, assigning zero probability to every pixel.
-    \item a constant-prevalence predictor, assigning every pixel the measured test-set fire-pixel prevalence.
+    \item all-background predictor, assigning zero probability to every pixel.
+    \item constant-prevalence predictor, assigning every pixel the measured test-set fire-pixel prevalence.
 \end{enumerate}
 
 $2.$ is the theoretically expected value of AUPRC under a classifier with no discriminative ability. Model performance is reported alongside both baselines.
