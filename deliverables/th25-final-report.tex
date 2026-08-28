@@ -137,7 +137,7 @@ Traditional downscaling methods often fail to capture the complex non-linear pat
 
 However, many architectures are optimised for texture-rich, natural images, and not designed for extreme resolution-gaps ($66.7\times$ in this project). They may perform poorly on active wildfire data, where the target signal is extremely sparse and localised. In risk assessment, fire mask is preferred for direct analysis. This creates two challenges: severe class imbalance that biases standard reconstruction loss functions (\cite{qiAdvancingImageSuperresolution2026}); and an ill-posed one-to-many mapping (\cite{wangDeepLearningImage2020}). Architectures are needed that can preserve fire signal against a dominant background and recover coherent fire-front structure.
 
-Closest precedents to this task are \cite{mccarthyDeepLearningApproach2021} and \cite{badhanDeepLearningApproach2024}: trained a U-Net and autoencoder respectively to downscale GOES observations to VIIRS-equivalent $375\,\text{m}$ fire mask. Both stop at $375\,\text{m}$ resolution, leaving the challenge of downscaling to $30\,\text{m}$ resolution unaddressed.
+Closest precedents to this task are \cite{mccarthyDeepLearningApproach2021} and \cite{badhanDeepLearningApproach2024}: trained a U-Net and autoencoder respectively to downscale GOES observations to VIIRS-equivalent $375\,\text{m}$ fire data. Both stop at $375\,\text{m}$ resolution, leaving the challenge of downscaling to $30\,\text{m}$ resolution unaddressed.
 
 While wildfires are influenced by factors like terrain and landcover (\cite{sullivanInfernoFundamentalProcesses2017}), generic super-resolution models omit this information. Providing high-resolution covariates provides context and constraints for the model, which may help mitigate the ill-posed nature of the downscaling problem.
 
@@ -214,7 +214,7 @@ GOES Dimensions & $4 \times 4$ px & Target size ($7680/2000$) \\ \hline
 \section{Methods}
 
 \subsection{HAUNet (Hybrid Attention U-Net)}
-Among CNN-based approaches, HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) uses hybrid attention to capture both local fine detail and broader contextual structure across multiple scales.
+HAUNet (\cite{wangHybridAttentionBasedUShaped2023}) is an encoder-decoder network that embeds hybrid attention in its encoder/decoder blocks to capture local fine detail and broader context across multiple scales; full architecture is shown in Figure \ref{fig:haunet}.
 
 \subsubsection{Hybrid Attention Mechanisms}
 \begin{itemize}
@@ -392,7 +392,7 @@ Due to the extreme rarity of the positive class, absolute metric values are diff
 
 $2.$ is the theoretically expected value of AUPRC under a classifier with no discriminative ability. Model performance is reported alongside both reference-points.
 
-While target dilation were used for the training target to mitigate class imbalance during optimisation, all evaluation metrics were computed against the original, undilated binary target masks. This ensures reported performance reflects the model's ability to predict at native target resolution.
+While target dilation were used to mitigate class imbalance during training, all evaluation metrics were computed against the original, undilated targets. This ensures reported performance reflects the model's ability to predict at native target resolution.
 
 The best model checkpoint during fine tuning and selection for final evaluation and was selected based on the highest validation AUPRC. AUPRC evaluates across range of classification thresholds, making it threshold-independent and less sensitive to the extreme class imbalance.
 
