@@ -1,0 +1,10 @@
+{
+  "exp_name": "tune_haunet_stage1_t04_focal_dice",
+  "loss_type": "focal_dice",
+  "learning_rate": 2.4361803597070617e-05,
+  "dilate_target": false,
+  "alpha": 0.8765335726483072,
+  "gamma": 1.46911981001143,
+  "dice_weight": 0.7844431599250916,
+  "smooth": 0.01
+}

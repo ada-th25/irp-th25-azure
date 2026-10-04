@@ -1,0 +1,8 @@
+{
+  "exp_name": "tune_haunet_stage1_t09_gaussian_focal",
+  "loss_type": "gaussian_focal",
+  "learning_rate": 0.0001412716051725937,
+  "dilate_target": false,
+  "gaussian_alpha": 2.0,
+  "gaussian_beta": 4.0
+}

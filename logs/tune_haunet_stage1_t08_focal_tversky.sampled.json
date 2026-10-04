@@ -1,0 +1,10 @@
+{
+  "exp_name": "tune_haunet_stage1_t08_focal_tversky",
+  "loss_type": "focal_tversky",
+  "learning_rate": 6.233210206629384e-05,
+  "dilate_target": false,
+  "alpha": 0.6908340334491851,
+  "gamma": 1.1709025388639105,
+  "tversky_alpha": 0.34287517629903996,
+  "tversky_beta": 0.677794341833899
+}

@@ -21,3 +21,5 @@
 *.geojson
 *.pyc
 *.DS_Store
+checkpoints/
+eda_output/

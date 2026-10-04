@@ -1,8 +1,8 @@
 import numpy as np
 import rasterio
-from google.api_core.exceptions import NotFound
+from azure.core.exceptions import ResourceNotFoundError
 
-def compute_validity(bucket, manifest_entry: dict) -> dict:
+def compute_validity(container_client, manifest_entry: dict) -> dict:
     """
     Single source of truth for sample validity. Mirrors the checks
     currently in WildfireDataset._filter_complete exactly, so that
@@ -14,20 +14,20 @@ def compute_validity(bucket, manifest_entry: dict) -> dict:
     cov_path = paths.get("covariates", "")
 
     try:
-        goes_raw = bucket.blob(goes_path).download_as_bytes()
-    except NotFound:
+        goes_raw = container_client.get_blob_client(goes_path).download_blob().readall()
+    except ResourceNotFoundError:
         return {"is_valid": False, "invalid_reason": "missing_goes"}
     except Exception:
         return {"is_valid": False, "invalid_reason": "goes_read_error"}
 
     try:
-        target_raw = bucket.blob(target_path).download_as_bytes()
-    except NotFound:
+        target_raw = container_client.get_blob_client(target_path).download_blob().readall()
+    except ResourceNotFoundError:
         return {"is_valid": False, "invalid_reason": "missing_target_or_cov"}
     except Exception:
         return {"is_valid": False, "invalid_reason": "target_read_error"}
 
-    if not bucket.blob(cov_path).exists():
+    if not container_client.get_blob_client(cov_path).exists():
         return {"is_valid": False, "invalid_reason": "missing_target_or_cov"}
 
     try:

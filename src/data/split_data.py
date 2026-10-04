@@ -1,14 +1,14 @@
 """
-Dataset Stratification and Split Generation Pipeline.
+Dataset Stratification and Split Generation Pipeline (Azure Native Edition).
 
-Generates reproducible train/validation/test splits stratified by fire size 
-(pixel counts or hotspot detections) for Landsat and VIIRS branches. Reads 
-sample manifest metadata directly from Google Cloud Storage (GCS) and writes 
-split ID lists as plain-text files.
+Generates reproducible train/validation/test splits stratified by fire size
+(pixel counts or hotspot detections) for Landsat and VIIRS branches. Reads
+sample manifest metadata directly from Azure Blob Storage and writes
+split ID lists as plain-text blobs.
 
 Pre-requisite:
-    Must run `src/utils/enrich_manifests.py` before generating splits to ensure 
-    `is_valid` metadata flags are populated across all GCS manifest JSON files.
+    Must run `src/utils/enrich_manifests.py` before generating splits to ensure
+    `is_valid` metadata flags are populated across all manifest JSON files.
 
 Usage example:
     python src/data/split_data.py \
@@ -18,19 +18,17 @@ Usage example:
         --overwrite
 """
 
+import os
 import argparse
-from html import parser
 import json
 import numpy as np
 from sklearn.model_selection import StratifiedShuffleSplit
-from collections import defaultdict
-from google.cloud import storage
-from google.auth import default
+from azure.storage.blob import ContainerClient
 
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-BUCKET_NAME = "wildfire-irp-data-th25"
+CONTAINER_NAME = "wildfire-irp-data-th25"
 OUTPUT_PREFIX = "processed_dataset_gcp"
 TRAIN_RATIO = 0.80
 VAL_RATIO = 0.10
@@ -39,27 +37,28 @@ N_STRATA = 4      # number of fire-size quantile bins for stratification
 RANDOM_SEED = 42  # fixed seed for reproducibility across all experiments
 
 
-def load_manifests(bucket, branch: str) -> list[dict]:
+def load_manifests(container_client, branch: str) -> list[dict]:
     """
     Downloads and parses all manifest JSON records for a specified dataset branch.
 
     Args:
-        bucket: Active Google Cloud Storage bucket object.
+        container_client: Active azure.storage.blob.ContainerClient.
         branch: Target dataset branch ('landsat' or 'viirs').
 
     Returns:
         List[Dict[str, Any]]: List of parsed sample manifest dictionaries.
     """
     prefix = f"{OUTPUT_PREFIX}/{branch}_pairs/manifest/"
-    blobs = list(bucket.list_blobs(prefix=prefix))
-    print(f"  Loading {len(blobs)} manifests for branch '{branch}'...")
+    blob_names = [b.name for b in container_client.list_blobs(name_starts_with=prefix)]
+    print(f"  Loading {len(blob_names)} manifests for branch '{branch}'...")
     manifests = []
-    for blob in blobs:
-        if blob.name.endswith(".json"):
+    for name in blob_names:
+        if name.endswith(".json"):
             try:
-                manifests.append(json.loads(blob.download_as_text()))
+                content = container_client.get_blob_client(name).download_blob().readall()
+                manifests.append(json.loads(content))
             except Exception as e:
-                print(f"  [WARN] Could not parse {blob.name}: {e}")
+                print(f"  [WARN] Could not parse {name}: {e}")
     return manifests
 
 
@@ -86,7 +85,7 @@ def stratified_split(
         seed: Random state seed for reproducible splitting.
 
     Returns:
-        Tuple[List[str], List[str], List[str]]: Lists containing sample IDs for 
+        Tuple[List[str], List[str], List[str]]: Lists containing sample IDs for
         (train_ids, val_ids, test_ids).
     """
     sample_ids = np.array(sample_ids)
@@ -131,13 +130,13 @@ def stratified_split(
     return train_ids, val_ids, test_ids
 
 
-def write_split(bucket, branch: str, split_name: str, ids: list[str],
+def write_split(container_client, branch: str, split_name: str, ids: list[str],
                  suffix: str = "") -> None:
     """
-    Serialises a split ID list to a plain-text file in Google Cloud Storage.
+    Serialises a split ID list to a plain-text blob in Azure Blob Storage.
 
     Args:
-        bucket: Active Google Cloud Storage bucket object.
+        container_client: Active azure.storage.blob.ContainerClient.
         branch: Dataset branch name ('landsat' or 'viirs').
         split_name: Partition name ('train', 'val', or 'test').
         ids: Collection of sample ID strings to write.
@@ -146,16 +145,18 @@ def write_split(bucket, branch: str, split_name: str, ids: list[str],
     splits_dir = f"splits_{suffix}" if suffix else "splits"
     path = f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/{split_name}.txt"
     content = "\n".join(sorted(ids))
-    bucket.blob(path).upload_from_string(content, content_type="text/plain")
-    print(f"  Written {len(ids):4d} IDs -> gs://{bucket.name}/{path}")
+    container_client.get_blob_client(path).upload_blob(
+        content, overwrite=True, content_type="text/plain"
+    )
+    print(f"  Written {len(ids):4d} IDs -> {CONTAINER_NAME}/{path}")
 
 
-def split_exists(bucket, branch: str, suffix: str = "") -> bool:
+def split_exists(container_client, branch: str, suffix: str = "") -> bool:
     """
-    Checks if a training split file already exists in GCS for a given branch.
+    Checks if a training split file already exists in Azure for a given branch.
 
     Args:
-        bucket: Active Google Cloud Storage bucket object.
+        container_client: Active azure.storage.blob.ContainerClient.
         branch: Dataset branch name ('landsat' or 'viirs').
         suffix: Optional directory suffix.
 
@@ -163,18 +164,18 @@ def split_exists(bucket, branch: str, suffix: str = "") -> bool:
         bool: True if split exists, False otherwise.
     """
     splits_dir = f"splits_{suffix}" if suffix else "splits"
-    return bucket.blob(
+    return container_client.get_blob_client(
         f"{OUTPUT_PREFIX}/{splits_dir}/{branch}/train.txt"
     ).exists()
 
 
-def run_branch(bucket, branch: str, overwrite: bool,
+def run_branch(container_client, branch: str, overwrite: bool,
                 max_samples: int = None, suffix: str = "") -> None:
     """
     Filters valid records, calculates splits, and exports split metadata for a branch.
 
     Args:
-        bucket: Active Google Cloud Storage bucket object.
+        container_client: Active azure.storage.blob.ContainerClient.
         branch: Target dataset branch ('landsat' or 'viirs').
         overwrite: Forces regeneration if destination split files exist.
         max_samples: Subsamples the target dataset before split execution.
@@ -184,16 +185,16 @@ def run_branch(bucket, branch: str, overwrite: bool,
     print(f"Branch: {branch}" + (f" (suffix={suffix})" if suffix else ""))
     print(f"{'='*60}")
 
-    if split_exists(bucket, branch, suffix) and not overwrite:
+    if split_exists(container_client, branch, suffix) and not overwrite:
         print(f"  Splits already exist for '{branch}'. "
               f"Use --overwrite to regenerate.")
         return
 
-    manifests = load_manifests(bucket, branch)
+    manifests = load_manifests(container_client, branch)
     if not manifests:
         print(f"  [SKIP] No manifests found for branch '{branch}'.")
         return
-    
+
     n_before = len(manifests)
     manifests = [m for m in manifests if m.get("is_valid") is True]
     n_dropped = n_before - len(manifests)
@@ -240,10 +241,11 @@ def run_branch(bucket, branch: str, overwrite: bool,
           f"val={len(val_ids)} / test={len(test_ids)} "
           f"(total={total})")
 
-    write_split(bucket, branch, "train", train_ids, suffix)
-    write_split(bucket, branch, "val",   val_ids, suffix)
-    write_split(bucket, branch, "test",  test_ids, suffix)
+    write_split(container_client, branch, "train", train_ids, suffix)
+    write_split(container_client, branch, "val",   val_ids, suffix)
+    write_split(container_client, branch, "test",  test_ids, suffix)
     print(f"  Done.")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Create stratified data splits.")
@@ -257,14 +259,14 @@ def main():
                         help="Suffix for output split dir")
     args = parser.parse_args()
 
-    credentials, _ = default()
-    bucket = storage.Client(credentials=credentials).bucket(BUCKET_NAME)
+    conn_str = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+    container_client = ContainerClient.from_connection_string(conn_str, CONTAINER_NAME)
 
     branches = (["landsat", "viirs"] if args.branch == "both"
                 else [args.branch])
 
     for branch in branches:
-        run_branch(bucket, branch, args.overwrite,
+        run_branch(container_client, branch, args.overwrite,
                    max_samples=args.max_samples, suffix=args.suffix)
 
     print("\nSplits complete.")

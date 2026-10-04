@@ -3,10 +3,10 @@ Usage: python -m src.utils.compute_dem_stats --branch viirs --suffix 500_samples
 """
 import argparse
 import torch
-import fsspec
-from src.data.wildfire_dataset import WildfireDataset
 
-BUCKET_NAME = "wildfire-irp-data-th25"
+from src.data.wildfire_dataset import WildfireDataset, load_split_ids
+
+CONTAINER_NAME = "wildfire-irp-data-th25"
 PREFIX = "processed_dataset_gcp"
 
 
@@ -21,13 +21,12 @@ def main():
     args = parser.parse_args()
 
     splits_dir = f"splits_{args.suffix}" if args.suffix else "splits"
-    split_path = f"gs://{BUCKET_NAME}/{PREFIX}/{splits_dir}/{args.branch}/train.txt"
-    print(f"Loading split IDs from: {split_path}")
-    with fsspec.open(split_path, "r") as f:
-        train_ids = [line.strip() for line in f if line.strip()]
+    print(f"Loading split IDs from: {CONTAINER_NAME}/{PREFIX}/{splits_dir}/{args.branch}/train.txt")
+    train_ids = load_split_ids(CONTAINER_NAME, args.branch, "train",
+                                output_prefix=PREFIX, splits_dir=splits_dir)
 
     # Initialise dataset with the loaded IDs
-    ds = WildfireDataset(BUCKET_NAME, PREFIX, args.branch, split_ids=train_ids)
+    ds = WildfireDataset(CONTAINER_NAME, PREFIX, args.branch, split_ids=train_ids)
 
     # Accumulate sum and sum-of-squares over the DEM channel (cov[0]), in KM
     n_pixels = 0
@@ -35,7 +34,7 @@ def main():
     ch_sqsum = torch.zeros(1, dtype=torch.float64)
 
     for i in range(len(ds)):
-        cov = ds._read_gcs_raster(ds.samples[i]["paths"]["covariates"]).double()  # (2, h, w) raw
+        cov = ds._read_azure_raster(ds.samples[i]["paths"]["covariates"]).double()  # (2, h, w) raw
         dem_km = cov[0:1] / 1000.0  # (1, h, w)
         ch_sum += dem_km.sum(dim=(1, 2))
         ch_sqsum += (dem_km ** 2).sum(dim=(1, 2))

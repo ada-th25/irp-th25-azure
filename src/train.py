@@ -24,9 +24,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader
-from google.cloud import storage
-from google.auth import default
 from concurrent.futures import ThreadPoolExecutor
+
+from azure.storage.blob import ContainerClient, BlobClient
+conn_str = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
 
 # Local modules
 sys.path.append(str(Path(__file__).parent))
@@ -56,28 +57,32 @@ HIGHER_IS_BETTER = {
 # ------------------------------------------------------------------
 # Active Pixel Counter (for WeightedRandomSampler)
 # ------------------------------------------------------------------
-def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output_prefix: str) -> dict:
+def load_positive_pixel_counts(container_name: str, branch: str, split_ids: list[str], output_prefix: str) -> dict:
     """
-    Parses active pixel counts directly from GCS manifest files asynchronously.
+    Parses active pixel counts directly from Azure Blob Storage manifest files asynchronously.
 
     Avoids downloading full raster data during dataset initialization to build
     sampling weights for `WeightedRandomSampler`.
 
     Args:
-        bucket: Google Cloud Storage bucket object.
+        container_name: Azure Blob Storage container name.
         branch: Data processing branch identifier (e.g., 'viirs', 'goes').
         split_ids: List of sample IDs belonging to the dataset split.
-        output_prefix: Root path prefix in the GCS bucket.
+        output_prefix: Root path prefix in the Azure Blob Storage container.
 
     Returns:
         Dict[str, int]: Keyed mapping of sample IDs to their positive pixel counts.
     """
     prefix = f"{output_prefix}/{branch}_pairs/manifest/"
     split_id_set = set(split_ids)
-    blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith(".json")]
+    container_client = ContainerClient.from_connection_string(conn_str, container_name)
+    
+    blob_names = [b.name for b in container_client.list_blobs(name_starts_with=prefix) if b.name.endswith(".json")]
 
-    def _read(blob):
-        m = json.loads(blob.download_as_text())
+    def _read(blob_name):
+        blob_client = container_client.get_blob_client(blob_name)
+        content = blob_client.download_blob().readall()
+        m = json.loads(content.decode("utf-8"))
         sid = m.get("id")
         if sid in split_id_set:
             return sid, (m.get("n_active_pixels") or m.get("n_detections") or 1)
@@ -85,48 +90,52 @@ def load_positive_pixel_counts(bucket, branch: str, split_ids: list[str], output
 
     counts = {}
     with ThreadPoolExecutor(max_workers=32) as ex:
-        for result in ex.map(_read, blobs):
+        for result in ex.map(_read, blob_names):
             if result:
                 counts[result[0]] = result[1]
     return counts
 
 # ------------------------------------------------------------------
-# GCS Checkpoint Helpers
+# Azure Blob Storage Checkpoint Helpers
 # ------------------------------------------------------------------
 
-def upload_checkpoint(bucket, local_path: str, gcs_prefix: str) -> None:
+def upload_checkpoint(container_name: str, local_path: str, blob_prefix: str) -> None:
     """
-    Uploads a local model checkpoint file to Google Cloud Storage.
+    Uploads a local model checkpoint file to Azure Blob Storage.
 
     Args:
-        bucket: Target GCS bucket instance.
+        container_name: Target Azure Blob Storage container name.
         local_path: Local filesystem path to the checkpoint file (.pt).
-        gcs_prefix: Target directory prefix inside the GCS bucket.
+        blob_prefix: Target directory prefix inside the Azure Blob Storage container.
     """
     fname = os.path.basename(local_path)
-    gcs_path = f"{gcs_prefix}/{fname}"
-    bucket.blob(gcs_path).upload_from_filename(local_path)
-    print(f"  [GCS] Uploaded checkpoint → gs://{bucket.name}/{gcs_path}")
+    blob_name = f"{blob_prefix}/{fname}"
+    blob_client = BlobClient.from_connection_string(conn_str, container_name, blob_name)
+
+    with open(local_path, "rb") as data:
+        blob_client.upload_blob(data, overwrite=True)
+    print(f"  [Azure] Uploaded checkpoint → container: {container_name}, blob: {blob_name}")
 
 
-def prune_old_checkpoints(bucket, gcs_prefix: str, keep_last_n: int) -> None:
+def prune_old_checkpoints(container_name: str, blob_prefix: str, keep_last_n: int) -> None:
     """
-    Deletes older epoch checkpoints in GCS, retaining only the N most recent.
+    Deletes older epoch checkpoints in Azure Blob Storage, retaining only the N most recent.
 
     Args:
-        bucket: Target GCS bucket instance.
-        gcs_prefix: Target directory prefix inside the GCS bucket.
+        container_name: Target Azure Blob Storage container name.
+        blob_prefix: Target directory prefix inside the Azure Blob Storage container.
         keep_last_n: Number of latest epoch checkpoints to preserve.
     """
-    blobs = sorted(
-        [b for b in bucket.list_blobs(prefix=gcs_prefix)
-         if "epoch_" in b.name and b.name.endswith(".pt")],
-        key=lambda b: b.name,
-    )
-    to_delete = blobs[:-keep_last_n] if len(blobs) > keep_last_n else []
-    for b in to_delete:
-        b.delete()
-        print(f"  [GCS] Pruned old checkpoint: {b.name}")
+    container_client = ContainerClient.from_connection_string(conn_str, container_name)
+    blobs = list(container_client.list_blobs(name_starts_with=blob_prefix))
+    
+    pt_blobs = [b.name for b in blobs if "epoch_" in b.name and b.name.endswith(".pt")]
+    pt_blobs.sort()
+
+    to_delete = pt_blobs[:-keep_last_n] if len(pt_blobs) > keep_last_n else []
+    for blob_name in to_delete:
+        container_client.delete_blob(blob_name)
+        print(f"  [Azure] Pruned old checkpoint: {blob_name}")
 
 
 # ------------------------------------------------------------------
@@ -429,7 +438,7 @@ def compute_postprocessed_metrics(
             fixed_threshold=fixed_threshold, min_component_size=min_component_size,
         )
         # feed mask as pseudo-logits (already 0/1) at threshold=0.5
-        pseudo_logits = (mask * 20.0) - 10.0  # sigmoid(±10) ≈ 0/1, avoids logit(0)/(1) inf
+        pseudo_logits = (mask * 20.0) - 10.0
 
         total_iou += compute_iou(pseudo_logits, target, threshold=0.5)
         total_bf1 += compute_boundary_f1(pseudo_logits, target, threshold=0.5)
@@ -524,8 +533,6 @@ def main():
     # ------------------------------------------------------------------
     # GCS client (for checkpoint upload)
     # ------------------------------------------------------------------
-    credentials, _ = default()
-    gcs_bucket = storage.Client(credentials=credentials).bucket(bucket_name)
     gcs_ckpt_prefix = cfg["checkpointing"]["gcs_checkpoint_prefix"]
  
     # ------------------------------------------------------------------
@@ -585,7 +592,7 @@ def main():
     if use_weighted_sampler:
         print("\nBuilding weighted sampler from manifest positive-pixel counts...")
         sample_ids = [m["id"] for m in train_ds.samples]   # post-filtering, matches train_ds indices
-        pos_counts = load_positive_pixel_counts(gcs_bucket, branch, sample_ids, prefix)
+        pos_counts = load_positive_pixel_counts(bucket_name, branch, sample_ids, prefix)
         weights = [max(pos_counts.get(sid, 1), 1) for sid in sample_ids]
         train_sampler = torch.utils.data.WeightedRandomSampler(
             weights, num_samples=len(sample_ids), replacement=True
@@ -705,7 +712,6 @@ def main():
         optimiser.load_state_dict(ckpt["optimiser"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
-        # Backward-compatible with older checkpoints (single best_score/best_metric, or even older best_iou).
         ckpt_best_scores = ckpt.get("best_scores")
         if ckpt_best_scores:
             for m in best_metrics:
@@ -724,7 +730,7 @@ def main():
     val_every = cfg["training"]["val_every_n_epochs"]
     save_every = cfg["training"]["save_every_n_epochs"]
     keep_last = cfg["checkpointing"]["keep_last_n"]
-    accum_steps = cfg["training"].get("grad_accum_steps", 1)   # 1 = no accumulation (default/backward compatible)
+    accum_steps = cfg["training"].get("grad_accum_steps", 1)
     if accum_steps > 1:
         print(f"Gradient accumulation: {accum_steps} steps "
               f"(effective batch size = {cfg['training']['batch_size'] * accum_steps})")
@@ -793,7 +799,7 @@ def main():
                         "best_metric": m,
                         "config":      cfg,
                     }, best_path)
-                    upload_checkpoint(gcs_bucket, best_path, gcs_ckpt_prefix)
+                    upload_checkpoint(bucket_name, best_path, gcs_ckpt_prefix)
                     print(f"  ★ New best {m}={best_scores[m]:.4f} — saved best_{m}.pt")
  
             print(
@@ -843,8 +849,8 @@ def main():
                 "best_scores": best_scores,
                 "config":      cfg,
             }, ckpt_path)
-            upload_checkpoint(gcs_bucket, ckpt_path, gcs_ckpt_prefix)
-            prune_old_checkpoints(gcs_bucket, gcs_ckpt_prefix, keep_last)
+            upload_checkpoint(bucket_name, ckpt_path, gcs_ckpt_prefix)
+            prune_old_checkpoints(bucket_name, gcs_ckpt_prefix, keep_last)
  
     print(f"\nTraining complete. Best scores: " +
           ", ".join(f"{m}={best_scores[m]:.4f}" for m in best_metrics))

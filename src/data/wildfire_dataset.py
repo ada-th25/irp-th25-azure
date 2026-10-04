@@ -1,10 +1,10 @@
 """
 Wildfire Dataset and Storage Utilities.
 
-Provides Google Cloud Storage (GCS) dataset loading interfaces for multi-modal 
-wildfire datasets containing GOES satellite, DEM, land cover, and high-resolution 
-ground-truth fire rasters. Handles fork-safe lazy connection pooling, dynamic 
-raster spatial resampling, target dilation/heatmap transforms, and split split ID resolution.
+Provides Azure Blob Storage dataset loading interfaces for multi-modal
+wildfire datasets containing GOES satellite, DEM, land cover, and high-resolution
+ground-truth fire rasters. Handles fork-safe lazy connection pooling, dynamic
+raster spatial resampling, target dilation/heatmap transforms, and split ID resolution.
 """
 
 import os
@@ -14,41 +14,41 @@ import torch
 import rasterio
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-from google.cloud import storage
+from azure.storage.blob import ContainerClient, BlobClient
 
 # ------------------------------------------------------------------
 # Data Split
 # ------------------------------------------------------------------
-def load_split_ids(bucket_name: str, branch: str,
+def load_split_ids(container_name: str, branch: str,
                    split: str, output_prefix: str = "processed_dataset",
                    splits_dir: str = "splits") -> set[str]:
     """
-    Downloads split ID tracking manifest from Google Cloud Storage.
+    Downloads split ID tracking manifest from Azure Storage.
 
     Args:
-        bucket_name: GCS storage bucket identifier.
+        container_name: Azure Storage container identifier.
         branch: Target dataset branch ('landsat' or 'viirs').
         split: Target dataset partition ('train', 'val', or 'test').
-        output_prefix: Root directory path in the target bucket.
+        output_prefix: Root directory path in the target container.
         splits_dir: Specific directory containing split text files.
 
     Returns:
         Set[str]: Unique sample identifier strings contained within the split file.
 
     Raises:
-        FileNotFoundError: If target split file does not exist in GCS storage.
+        FileNotFoundError: If target split file does not exist in Azure Storage.
     """
     path = f"{output_prefix}/{splits_dir}/{branch}/{split}.txt"
-    bucket = storage.Client().bucket(bucket_name)
-    blob = bucket.blob(path)
- 
-    if not blob.exists():
+    conn_str = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+    blob_client = BlobClient.from_connection_string(conn_str, container_name, blob_name=path)
+
+    if not blob_client.exists():
         raise FileNotFoundError(
-            f"Split file not found: gs://{bucket_name}/{path}\n"
+            f"Split file not found in container '{container_name}': {path}\n"
             f"Run split_data.py first to generate splits."
         )
- 
-    content = blob.download_as_text().strip()
+
+    content = blob_client.download_blob().readall().decode("utf-8").strip()
     ids = set(line.strip() for line in content.splitlines() if line.strip())
     print(f"[load_split_ids] Loaded {len(ids)} IDs for {branch}/{split}")
     return ids
@@ -65,7 +65,7 @@ DEFAULT_SIZES = {
 class WildfireDataset(Dataset):
     """
     Loads (target, goes, covariates) triplets for either the
-    landsat or viirs branch from GCS manifests.
+    landsat or viirs branch from Azure Blob Storage manifests.
 
      Spatial layout after __getitem__ (defaults, see DEFAULT_SIZES):
         Landsat branch:
@@ -73,7 +73,7 @@ class WildfireDataset(Dataset):
             goes_up    -> (3, 256, 256) upsampled for concatenation
             covariates -> (11, 256, 256) native (30m)
             target     -> (1, 256, 256) untouched fire patch
- 
+
         VIIRS branch (stage 1 -- full-res input, native-res output):
             goes       -> (3, 4, 4)     native GOES context
             goes_up    -> (3, 256, 256) upsampled for concatenation
@@ -84,30 +84,31 @@ class WildfireDataset(Dataset):
 
     Completeness filtering:
         Samples are silently dropped at init time if any of the three
-        files are missing from GCS, or if the GOES raster is all-masked
-        (all zeros across all bands, indicates a failed/empty GEE export).
+        files are missing from Azure Blob Storage, or if the GOES raster
+        is all-masked (all zeros across all bands, indicates a failed/empty
+        GOES fetch).
     """
 
-    def __init__(self, bucket_name, output_prefix, branch="landsat", split_ids=None,
-         target_size=None, cov_size=None, goes_size=None, 
-         binarize_target=None, dilate_target=False, heatmap_target=False, dilation_kernel_size=None,
-         goes_mean=None, goes_std=None, dem_mean=None, dem_std=None, heatmap_sigma=1.0,
-         manifest_workers=32, drop_dem=False, drop_landcover=False,
-         use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
+    def __init__(self, container_name, output_prefix, branch="landsat", split_ids=None,
+                 target_size=None, cov_size=None, goes_size=None,
+                 binarize_target=None, dilate_target=False, heatmap_target=False, dilation_kernel_size=None,
+                 goes_mean=None, goes_std=None, dem_mean=None, dem_std=None, heatmap_sigma=1.0,
+                 manifest_workers=32, drop_dem=False, drop_landcover=False,
+                 use_stage1_pred=False, stage1_pred_key="stage1_pred", augment=False):
 
         # Ensure mutual exclusion as requested
         if dilate_target and heatmap_target:
             raise ValueError("dilate_target and heatmap_target cannot both be True. "
                              "They are mutually exclusive target representation strategies.")
-        
-        self.bucket_name = bucket_name
+
+        self.container_name = container_name
+        self._container_client = None   # created per-process, see self.container property
+        self._client_pid = None         # tracks which process created self._container_client
         self.branch = branch
         self.output_prefix = output_prefix
         self.dilate_target = dilate_target
         self.heatmap_target = heatmap_target
         self.heatmap_sigma = heatmap_sigma
-        self._bucket = None       # created per-process, see self.bucket property
-        self._client_pid = None   # tracks which process created self._bucket
         self.use_stage1_pred = use_stage1_pred
         self.stage1_pred_key = stage1_pred_key   # key in manifest["paths"] pointing to the stage-1 raster
         self.augment = augment
@@ -135,12 +136,12 @@ class WildfireDataset(Dataset):
         default_dem_std  = [0.5048759609237181]
         self.dem_mean = torch.tensor(dem_mean if dem_mean is not None else default_dem_mean).view(-1, 1, 1)
         self.dem_std  = torch.tensor(dem_std if dem_std is not None else default_dem_std).view(-1, 1, 1)
- 
+
         defaults = DEFAULT_SIZES.get(branch, DEFAULT_SIZES["landsat"])
         self.target_size = tuple(target_size) if target_size is not None else defaults["target_size"]
         self.cov_size = tuple(cov_size) if cov_size is not None else defaults["cov_size"]
         self.goes_size = tuple(goes_size) if goes_size is not None else defaults["goes_size"]
- 
+
         manifest_prefix = f"{output_prefix}/{branch}_pairs/manifest/"
         raw_samples = self._load_manifests(manifest_prefix, split_ids, manifest_workers)
 
@@ -149,9 +150,9 @@ class WildfireDataset(Dataset):
             raw_samples = [m for m in raw_samples if m.get("id") in split_ids]
             print(f"[WildfireDataset/{branch}] Split filter: "
                   f"{len(raw_samples)}/{before} samples in provided split.")
- 
+
         self.samples, self.n_dropped = self._filter_complete(raw_samples)
- 
+
         if self.n_dropped > 0:
             print(
                 f"[WildfireDataset/{branch}] Dropped {self.n_dropped}/{len(raw_samples)} "
@@ -160,17 +161,19 @@ class WildfireDataset(Dataset):
             )
         else:
             print(f"[WildfireDataset/{branch}] {len(self.samples)} usable pairs.")
- 
+
         print(f"[WildfireDataset/{branch}] sizes: target={self.target_size}, "
               f"cov={self.cov_size}, goes={self.goes_size}")
 
     # ------------------------------------------------------------------
     # Manifest loading
     # ------------------------------------------------------------------
-    def _download_manifest_json(self, blob):
-        """Downloads and parses GCS JSON manifest blob safely."""
+    def _download_manifest_json(self, blob_name):
+        """Downloads and parses Azure Blob JSON manifest safely."""
         try:
-            return json.loads(blob.download_as_text())
+            blob_client = self.container.get_blob_client(blob_name)
+            content = blob_client.download_blob().readall()
+            return json.loads(content.decode("utf-8"))
         except Exception:
             return None
 
@@ -182,11 +185,16 @@ class WildfireDataset(Dataset):
         used_direct_path = False
 
         if split_ids is not None:
-            probe_blobs = [self.bucket.blob(f"{manifest_prefix}{sid}.json") for sid in split_ids]
+            probe_names = [f"{manifest_prefix}{sid}.json" for sid in split_ids]
+
+            def _check_exists(b_name):
+                return b_name, self.container.get_blob_client(b_name).exists()
+
             with ThreadPoolExecutor(max_workers=manifest_workers) as ex:
-                exists_flags = list(ex.map(lambda b: b.exists(), probe_blobs))
-            found = [b for b, ok in zip(probe_blobs, exists_flags) if ok]
-            missing_count = len(probe_blobs) - len(found)
+                results = list(ex.map(_check_exists, probe_names))
+
+            found = [b_name for b_name, exists in results if exists]
+            missing_count = len(probe_names) - len(found)
 
             if missing_count == 0:
                 candidate_blobs = found
@@ -200,13 +208,13 @@ class WildfireDataset(Dataset):
 
         if not used_direct_path:
             candidate_blobs = [
-                blob for blob in self.bucket.list_blobs(prefix=manifest_prefix)
+                blob.name for blob in self.container.list_blobs(name_starts_with=manifest_prefix)
                 if blob.name.endswith(".json")
             ]
 
         raw_samples = []
         with ThreadPoolExecutor(max_workers=manifest_workers) as ex:
-            futures = [ex.submit(self._download_manifest_json, b) for b in candidate_blobs]
+            futures = [ex.submit(self._download_manifest_json, b_name) for b_name in candidate_blobs]
             for fut in as_completed(futures):
                 result = fut.result()
                 if result is not None:
@@ -215,37 +223,37 @@ class WildfireDataset(Dataset):
         return raw_samples
 
     # ------------------------------------------------------------------
-    # Fork-safe lazy GCS client
+    # Fork-safe lazy Azure client
     # ------------------------------------------------------------------
     @property
-    def bucket(self):
+    def container(self):
         """
-        Lazily initializes Google Cloud Storage bucket handle bound to current PID.
+        Lazily initializes Azure ContainerClient bound to current PID.
 
-        Prevents socket-sharing bugs during DataLoader worker process initialisation.
-
-        Returns:
-            storage.Bucket: Active storage bucket connection handle.
+        Prevents socket-sharing issues during PyTorch DataLoader worker processes.
         """
         current_pid = os.getpid()
-        if self._bucket is None or self._client_pid != current_pid:
-            self._bucket = storage.Client().bucket(self.bucket_name)
+        if self._container_client is None or self._client_pid != current_pid:
+            conn_str = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+            self._container_client = ContainerClient.from_connection_string(
+                conn_str, container_name=self.container_name
+            )
             self._client_pid = current_pid
-        return self._bucket
+        return self._container_client
 
     # ------------------------------------------------------------------
     # Completeness filtering
     # ------------------------------------------------------------------
 
-    def _blob_exists(self, gcs_path):
-        return self.bucket.blob(gcs_path).exists()
+    def _blob_exists(self, blob_path):
+        return self.container.get_blob_client(blob_path).exists()
 
-    def _goes_is_valid(self, gcs_path):
-        blob = self.bucket.blob(gcs_path)
-        if not blob.exists():
+    def _goes_is_valid(self, blob_path):
+        blob_client = self.container.get_blob_client(blob_path)
+        if not blob_client.exists():
             return False
         try:
-            raw = blob.download_as_bytes()
+            raw = blob_client.download_blob().readall()
             with rasterio.MemoryFile(raw) as mf:
                 with mf.open() as src:
                     data = src.read().astype(np.float32)
@@ -253,11 +261,10 @@ class WildfireDataset(Dataset):
             if nodata is not None:
                 data[data == nodata] = 0.0
             data[~np.isfinite(data)] = 0.0
-    
-            # All-zero -> failed GEE export
+
             if np.all(data == 0):
                 return False
-    
+
         except Exception:
             return False
         return True
@@ -279,28 +286,27 @@ class WildfireDataset(Dataset):
     # Raster I/O
     # ------------------------------------------------------------------
 
-    def _read_gcs_raster(self, gcs_path, fill_nodata=0.0):
+    def _read_azure_raster(self, blob_path, fill_nodata=0.0):
         """
-        Reads binary raster data from GCS key into a PyTorch FloatTensor.
+        Reads binary raster data from Azure Blob Storage into a PyTorch FloatTensor.
 
         Replaces NoData values and non-finite NaN/Inf values with fill value.
 
         Args:
-            gcs_path: GCS bucket blob key path.
+            blob_path: Azure blob path within the container.
             fill_nodata: Target numerical replacement value for non-finite entries.
 
         Returns:
-            torch.Tensor: Hydro/spatial raster tensor representation.
+            torch.Tensor: Spatial raster tensor representation.
         """
-        blob = self.bucket.blob(gcs_path)
-        raw  = blob.download_as_bytes()
+        blob_client = self.container.get_blob_client(blob_path)
+        raw = blob_client.download_blob().readall()
         with rasterio.MemoryFile(raw) as memfile:
             with memfile.open() as src:
                 data = src.read().astype(np.float32)
                 nodata = src.nodata
         if nodata is not None:
             data[data == nodata] = fill_nodata
-        # Always replace NaN regardless of nodata metadata
         data[~np.isfinite(data)] = fill_nodata
         return torch.from_numpy(data)
 
@@ -354,7 +360,7 @@ class WildfireDataset(Dataset):
         return heatmap.unsqueeze(0)
 
     # ------------------------------------------------------------------
-    # Onehot Landcover 
+    # Onehot Landcover
     # ------------------------------------------------------------------
 
     LANDCOVER_CLASSES = [10, 20, 30, 40, 50, 60, 80, 90, 95, 100]
@@ -381,16 +387,16 @@ class WildfireDataset(Dataset):
             idx: Integer dataset sample index.
 
         Returns:
-            Dict[str, Union[torch.Tensor, str]]: Batch dictionary containing model inputs 
-            ("input"), target masks ("target"), GOES base tensor ("goes"), 
+            Dict[str, Union[torch.Tensor, str]]: Batch dictionary containing model inputs
+            ("input"), target masks ("target"), GOES base tensor ("goes"),
             covariates ("covariates"), sample string ID ("sample_id"), and date string ("date").
         """
         manifest = self.samples[idx]
         paths = manifest["paths"]
-    
-        target = self._read_gcs_raster(paths["target"])
-        goes = self._read_gcs_raster(paths["goes_input"])
-        cov = self._read_gcs_raster(paths["covariates"])
+
+        target = self._read_azure_raster(paths["target"])
+        goes = self._read_azure_raster(paths["goes_input"])
+        cov = self._read_azure_raster(paths["covariates"])
 
         goes = (goes - self.goes_mean) / self.goes_std
 
@@ -403,15 +409,15 @@ class WildfireDataset(Dataset):
             cov[0:1] = 0.0
         if self.drop_landcover:
             cov[1:11] = 0.0
-    
-        # Snap GOES to canonical low-res size (handles ±1px GEE snapping).
+
+        # Snap GOES to canonical low-res size (handles +/-1px snapping).
         goes = F.interpolate(
             goes.unsqueeze(0),
             size=self.goes_size,
             mode="bilinear",
             align_corners=False,
         ).squeeze(0)
- 
+
         # Upsample GOES separately for concatenation with covariates/target
         goes_up = F.interpolate(
             goes.unsqueeze(0),
@@ -419,7 +425,7 @@ class WildfireDataset(Dataset):
             mode="bilinear",
             align_corners=False,
         ).squeeze(0)
- 
+
         # Snap covariates to cov_size
         if cov.shape[-2:] != self.cov_size:
             cov = F.interpolate(
@@ -428,7 +434,7 @@ class WildfireDataset(Dataset):
                 mode="bilinear",
                 align_corners=False,
             ).squeeze(0)
- 
+
         # Snap target to canonical size
         if target.shape[-2:] != self.target_size:
             target = F.interpolate(
@@ -436,7 +442,7 @@ class WildfireDataset(Dataset):
                 size=self.target_size,
                 mode="nearest",
             ).squeeze(0)
- 
+
         if self.binarize_target:
             target = (target > 0).float()
             if self.dilate_target:
@@ -454,16 +460,16 @@ class WildfireDataset(Dataset):
                 )
 
         input_channels = [goes_up]
- 
+
         if self.use_stage1_pred:
-            stage1_pred = self._read_gcs_raster(paths[self.stage1_pred_key])  # (1, 20, 20) VIIRS-res
+            stage1_pred = self._read_azure_raster(paths[self.stage1_pred_key])
             if stage1_pred.shape[-2:] != self.cov_size:
                 stage1_pred = F.interpolate(
                     stage1_pred.unsqueeze(0), size=self.cov_size,
                     mode="bilinear", align_corners=False,
                 ).squeeze(0)
             input_channels.append(stage1_pred)
-    
+
         input_channels.append(cov)
         inp = torch.cat(input_channels, dim=0)
 
@@ -474,7 +480,7 @@ class WildfireDataset(Dataset):
             if torch.rand(1).item() < 0.5:
                 inp = torch.flip(inp, dims=[-2])       # vertical flip
                 target = torch.flip(target, dims=[-2])
- 
+
         return {
             "input":      inp,       # (goes_ch + cov_ch, H, W) model input
             "target":     target,    # (1, H, W) fire mask, H,W = target_size

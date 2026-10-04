@@ -7,7 +7,6 @@ and exports ONE 256x256 @ 30m covariate patch per unique spatial location.
 """
 
 import time
-import ee
 import pandas as pd
 from google.cloud import storage
 from google.auth import default

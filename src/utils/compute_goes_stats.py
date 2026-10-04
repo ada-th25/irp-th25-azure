@@ -2,13 +2,11 @@
 Usage: python -m src.utils.compute_goes_stats --branch viirs --suffix 500_samples_test
 """
 import argparse
-
 import torch
-import fsspec
 
-from src.data.wildfire_dataset import WildfireDataset
+from src.data.wildfire_dataset import WildfireDataset, load_split_ids
 
-BUCKET_NAME = "wildfire-irp-data-th25"
+CONTAINER_NAME = "wildfire-irp-data-th25"
 PREFIX = "processed_dataset_gcp"
 
 
@@ -23,14 +21,12 @@ def main():
     args = parser.parse_args()
 
     splits_dir = f"splits_{args.suffix}" if args.suffix else "splits"
-    split_path = f"gs://{BUCKET_NAME}/{PREFIX}/{splits_dir}/{args.branch}/train.txt"
-    print(f"Loading split IDs from: {split_path}")
-
-    with fsspec.open(split_path, "r") as f:
-        train_ids = [line.strip() for line in f if line.strip()]
+    print(f"Loading split IDs from: {CONTAINER_NAME}/{PREFIX}/{splits_dir}/{args.branch}/train.txt")
+    train_ids = load_split_ids(CONTAINER_NAME, args.branch, "train",
+                                output_prefix=PREFIX, splits_dir=splits_dir)
 
     # Initialise dataset with the loaded IDs
-    ds = WildfireDataset(BUCKET_NAME, PREFIX, args.branch, split_ids=train_ids)
+    ds = WildfireDataset(CONTAINER_NAME, PREFIX, args.branch, split_ids=train_ids)
 
     # Accumulate per-channel sum and sum-of-squares over the raw GOES tensor
     n_pixels = 0
@@ -38,7 +34,7 @@ def main():
     ch_sqsum = torch.zeros(3, dtype=torch.float64)
 
     for i in range(len(ds)):
-        goes = ds._read_gcs_raster(ds.samples[i]["paths"]["goes_input"]).double()  # (3, h, w) raw, pre-normalization
+        goes = ds._read_azure_raster(ds.samples[i]["paths"]["goes_input"]).double()  # (3, h, w) raw, pre-normalization
         ch_sum += goes.sum(dim=(1, 2))
         ch_sqsum += (goes ** 2).sum(dim=(1, 2))
         n_pixels += goes.shape[1] * goes.shape[2]
